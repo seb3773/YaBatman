@@ -1,0 +1,19 @@
+# Build directories
+/build/
+/build-static/
+
+# Generated Debian packages
+/*.deb
+
+# Work directory
+/__WORK/
+
+# Temporary / editor files
+*~
+*.swp
+*.tmp
+.DS_Store
+.vscode/
+# Large uncompressed libraries (tracked via .xz)
+libs/libtqt-mt.a
+
