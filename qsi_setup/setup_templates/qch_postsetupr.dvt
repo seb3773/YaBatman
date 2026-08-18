@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+# Rechargement du cache Sycoca Trinity
+if [ -x /opt/trinity/bin/tdebuildsycoca ]; then
+    /opt/trinity/bin/tdebuildsycoca >/dev/null 2>&1 || true
+fi
+
+# Activation et démarrage du service daemon yabatmand
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable --now yabatmand.service >/dev/null 2>&1 || true
+fi
+
+exit 0

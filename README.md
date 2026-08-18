@@ -198,6 +198,20 @@ The `.deb` package includes:
 
 The `postinst` script automatically detects your init system (systemd, sysvinit, OpenRC, runit) and installs, enables, and starts the `yabatmand` daemon service. Removal via `dpkg -r` cleanly stops and uninstalls the service.
 
+---
+
+### Q4OS Installer (.qsi)
+
+For users running the **Q4OS Linux** distribution, you can generate a one-click graphical installer (`.qsi`):
+
+```bash
+./build_qsi.sh
+```
+
+This script embeds the Debian package and custom graphical setup templates into `yabatman_1.0_amd64.qsi` (~186KB). On Q4OS, users can simply double-click the `.qsi` file to launch the native installation wizard.
+
+---
+
 ### Manual Installation (without .deb)
 
 If you prefer a manual install after building:
