@@ -97,15 +97,25 @@ cat > "$PKGROOT/etc/xdg/autostart/yabatman.desktop" <<EOF
 [Desktop Entry]
 Version=1.0
 Name=YaBatman
+GenericName=Battery Monitor & Power Manager
 Comment=Battery monitor and power manager
 Exec=yabatman
 Icon=yabatman
 Terminal=false
 Type=Application
+X-TDE-autostart-after=panel
+X-TDE-StartupNotify=false
+X-TDE-UniqueApplet=true
 X-GNOME-Autostart-enabled=true
 X-KDE-autostart-after=panel
+Categories=System;Utility;Monitor;HardwareSettings;
 EOF
 chmod 0644 "$PKGROOT/etc/xdg/autostart/yabatman.desktop"
+
+# TDE / Trinity specific autostart directory
+mkdir -p -- "$PKGROOT/opt/trinity/share/autostart"
+cp -a "$PKGROOT/etc/xdg/autostart/yabatman.desktop" "$PKGROOT/opt/trinity/share/autostart/yabatman.desktop"
+chmod 0644 "$PKGROOT/opt/trinity/share/autostart/yabatman.desktop"
 
 # ── Application icon (hicolor tree with symlinks) ────────────────────
 ICON_SRC="$SRC_ROOT/icons/yabatman.png"

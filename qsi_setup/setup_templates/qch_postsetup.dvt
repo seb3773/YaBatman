@@ -1,0 +1,6 @@
+#!/bin/sh
+# Launch YaBatman GUI tray client in user graphical session immediately after install
+if command -v yabatman >/dev/null 2>&1; then
+    yabatman &
+fi
+exit 0
