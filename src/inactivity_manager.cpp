@@ -1794,6 +1794,7 @@ void InactivityManager::onPrepareForShutdown(bool aboutToShutdown) {
 void InactivityManager::prepareSuspendGeneral(bool isHibernateOrPoweroff) {
     m_idleTimer->stop();
     m_batteryTimer->stop();
+    sync();
 
     // Black out screensaver immediately before sleep so it shows solid black on wake-up!
     emit blackoutScreensaver(true);
@@ -1816,9 +1817,10 @@ void InactivityManager::enterMinimalMode() {
     setRfkillState("bluetooth", 0);
     callDaemon("set_webcam_power:0");
     setProfile(3); // Ultra Low Power
+    sync();
     callDaemon("disable_cpu_cores");
     m_minimalMode = true;
-    usleep(2000000);
+    usleep(150000);
 }
 
 void InactivityManager::exitMinimalMode() {

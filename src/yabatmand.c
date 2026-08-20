@@ -2216,6 +2216,7 @@ static void set_cpu_core_online(int cpu, int online) {
 
 
 void disable_cpu_cores(void) {
+    sync();
     cpu_count = 0;
     DIR *cpudir = opendir(CPU_SYSFS_PATH);
     struct dirent *entry;
