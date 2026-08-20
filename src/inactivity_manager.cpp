@@ -1820,7 +1820,7 @@ void InactivityManager::enterMinimalMode() {
     sync();
     callDaemon("disable_cpu_cores");
     m_minimalMode = true;
-    usleep(150000);
+    usleep(2000000);
 }
 
 void InactivityManager::exitMinimalMode() {
