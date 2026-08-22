@@ -461,6 +461,7 @@ void InactivityManager::forceCheck() {
 
 void InactivityManager::onLidClosed(bool closed) {
     if (m_calibrationActive) return;
+    if (m_actionInProgress) return;
 
     if (closed) {
         emit blackoutScreensaver(true);
@@ -1104,13 +1105,14 @@ void InactivityManager::suspendSystem() {
     m_batteryLogger->addEvent(EVENT_SUSPEND, m_batteryPercentage, m_chargingState);
     m_batteryLogger->save();
 
+    // Release delay inhibitors BEFORE preparation (GTK3 proven order)
+    if (m_inhibitSleepFd >= 0) { ::close(m_inhibitSleepFd); m_inhibitSleepFd = -1; }
+    if (m_inhibitHibernateFd >= 0) { ::close(m_inhibitHibernateFd); m_inhibitHibernateFd = -1; }
+
     m_idleTimer->stop();
 
     prepareSuspendGeneral(false);
     usleep(200000);
-
-    if (m_inhibitSleepFd >= 0) { ::close(m_inhibitSleepFd); m_inhibitSleepFd = -1; }
-    if (m_inhibitHibernateFd >= 0) { ::close(m_inhibitHibernateFd); m_inhibitHibernateFd = -1; }
 
     if (!m_systemBus) {
         m_systemBus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, NULL);
@@ -1143,13 +1145,14 @@ void InactivityManager::suspendThenHibernate() {
     m_batteryLogger->addEvent(EVENT_SUSPEND_THEN_HIBERNATE, m_batteryPercentage, m_chargingState);
     m_batteryLogger->save();
 
+    // Release delay inhibitors BEFORE preparation (GTK3 proven order)
+    if (m_inhibitSleepFd >= 0) { ::close(m_inhibitSleepFd); m_inhibitSleepFd = -1; }
+    if (m_inhibitHibernateFd >= 0) { ::close(m_inhibitHibernateFd); m_inhibitHibernateFd = -1; }
+
     m_idleTimer->stop();
 
     prepareSuspendGeneral(false);
     usleep(200000);
-
-    if (m_inhibitSleepFd >= 0) { ::close(m_inhibitSleepFd); m_inhibitSleepFd = -1; }
-    if (m_inhibitHibernateFd >= 0) { ::close(m_inhibitHibernateFd); m_inhibitHibernateFd = -1; }
 
     if (!m_systemBus) {
         m_systemBus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, NULL);
@@ -1182,13 +1185,14 @@ void InactivityManager::hibernateSystem() {
     m_batteryLogger->addEvent(EVENT_HIBERNATE, m_batteryPercentage, m_chargingState);
     m_batteryLogger->save();
 
+    // Release delay inhibitors BEFORE preparation (GTK3 proven order)
+    if (m_inhibitSleepFd >= 0) { ::close(m_inhibitSleepFd); m_inhibitSleepFd = -1; }
+    if (m_inhibitHibernateFd >= 0) { ::close(m_inhibitHibernateFd); m_inhibitHibernateFd = -1; }
+
     m_idleTimer->stop();
 
     prepareSuspendGeneral(true);
     usleep(200000);
-
-    if (m_inhibitSleepFd >= 0) { ::close(m_inhibitSleepFd); m_inhibitSleepFd = -1; }
-    if (m_inhibitHibernateFd >= 0) { ::close(m_inhibitHibernateFd); m_inhibitHibernateFd = -1; }
 
     if (!m_systemBus) {
         m_systemBus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, NULL);
@@ -1221,13 +1225,14 @@ void InactivityManager::hybridSuspendSystem() {
     m_batteryLogger->addEvent(EVENT_HYBRID_SUSPEND, m_batteryPercentage, m_chargingState);
     m_batteryLogger->save();
 
+    // Release delay inhibitors BEFORE preparation (GTK3 proven order)
+    if (m_inhibitSleepFd >= 0) { ::close(m_inhibitSleepFd); m_inhibitSleepFd = -1; }
+    if (m_inhibitHibernateFd >= 0) { ::close(m_inhibitHibernateFd); m_inhibitHibernateFd = -1; }
+
     m_idleTimer->stop();
 
     prepareSuspendGeneral(false);
     usleep(200000);
-
-    if (m_inhibitSleepFd >= 0) { ::close(m_inhibitSleepFd); m_inhibitSleepFd = -1; }
-    if (m_inhibitHibernateFd >= 0) { ::close(m_inhibitHibernateFd); m_inhibitHibernateFd = -1; }
 
     if (!m_systemBus) {
         m_systemBus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, NULL);
@@ -1768,7 +1773,7 @@ void InactivityManager::setupDbusMonitoring() {
 
 void InactivityManager::onPrepareForSleep(bool aboutToSleep) {
     if (aboutToSleep) {
-        if (!m_actionInProgress) {
+        if (!m_actionInProgress && m_config->intercept_external_sleep_requests) {
             prepareSuspendGeneral(false);
             usleep(100000);
         }
@@ -1795,6 +1800,13 @@ void InactivityManager::prepareSuspendGeneral(bool isHibernateOrPoweroff) {
     m_idleTimer->stop();
     m_batteryTimer->stop();
     sync();
+
+    // Trigger visual transition effect if configured, lid is open, screen is active, and not already playing
+    if (m_config->tv_effect_on_suspend_and_shutdown != 0 && readLidState() && !m_screenSleeping && !m_transitionInProgress) {
+        m_transitionInProgress = true;
+        runSleepTransitionSync();
+        m_transitionInProgress = false;
+    }
 
     // Black out screensaver immediately before sleep so it shows solid black on wake-up!
     emit blackoutScreensaver(true);
@@ -1850,8 +1862,12 @@ void InactivityManager::afterWakeActions() {
     XSetScreenSaver(m_x11Display, 0, 0, DontPreferBlanking, DontAllowExposures);
     XSync(m_x11Display, False);
 
-    // Re-acquire inhibitors after sleep!
-    setupInhibitors();
+    // Re-acquire ONLY the sleep delay inhibitor after a safe delay (15s).
+    // Block inhibitors (handle-lid-switch, power-key, etc.) survive the sleep/wake
+    // cycle and must NEVER be released/re-created (race window with logind).
+    // The 15s delay ensures that suspend-then-hibernate's intermediate RTC wake-up
+    // can proceed to hibernation without being blocked by a freshly-acquired delay lock.
+    TQTimer::singleShot(15000, this, TQT_SLOT(reacquireDelayInhibitor()));
 
     if (m_config->minimal_state_before_suspend) {
         exitMinimalMode();
@@ -1978,7 +1994,9 @@ int InactivityManager::inhibitPowerSleep(const char *what, const char *who, cons
 void InactivityManager::setupInhibitors() {
     releaseInhibitors(); // Prevent descriptor leaks
     m_inhibitFd = inhibitPowerSleep("handle-lid-switch", "yabatman", "Custom lid switch handling", "block");
-    m_inhibitSleepFd = inhibitPowerSleep("sleep", "yabatman", "Custom sleep handling", "delay");
+    if (m_config->intercept_external_sleep_requests) {
+        m_inhibitSleepFd = inhibitPowerSleep("sleep", "yabatman", "Custom sleep handling", "delay");
+    }
     m_inhibitShutdownFd = inhibitPowerSleep("shutdown", "yabatman", "Custom shutdown handling", "delay");
     m_inhibitPowerKeyFd = inhibitPowerSleep("handle-power-key", "yabatman", "Custom power key handling", "block");
     m_inhibitSuspendKeyFd = inhibitPowerSleep("handle-suspend-key", "yabatman", "Custom suspend key handling", "block");
@@ -1992,6 +2010,13 @@ void InactivityManager::releaseInhibitors() {
     if (m_inhibitPowerKeyFd >= 0) { ::close(m_inhibitPowerKeyFd); m_inhibitPowerKeyFd = -1; }
     if (m_inhibitSuspendKeyFd >= 0) { ::close(m_inhibitSuspendKeyFd); m_inhibitSuspendKeyFd = -1; }
     if (m_inhibitHibernateFd >= 0) { ::close(m_inhibitHibernateFd); m_inhibitHibernateFd = -1; }
+}
+
+void InactivityManager::reacquireDelayInhibitor() {
+    // Only re-acquire the sleep delay inhibitor if enabled in config and not already held
+    if (m_config->intercept_external_sleep_requests && m_inhibitSleepFd < 0) {
+        m_inhibitSleepFd = inhibitPowerSleep("sleep", "yabatman", "Custom sleep handling", "delay");
+    }
 }
 
 void InactivityManager::setupPowerSleepKeys() {

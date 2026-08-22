@@ -44,6 +44,7 @@ struct YabatmanConfig {
     bool adjust_brightness_when_status_change;
     bool timeouts_auto_adapt;
     bool minimal_state_before_suspend;
+    bool intercept_external_sleep_requests;
 
     // Services freezing
     bool lowbat_freeze_services;

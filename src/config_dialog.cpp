@@ -380,6 +380,11 @@ void ConfigDialog::setupUI() {
     m_minSuspendCheck = new TQCheckBox("Put system in minimum energy state before suspend", suspendGroup);
     TQLabel *descLabel = new TQLabel("<font size=\"-1\" color=\"#555555\"><i>Force the hardware into a minimum power state before sleep to mitigate faulty or incomplete BIOS/firmware s2idle (modern standby) implementations.</i></font>", suspendGroup);
     descLabel->setAlignment(TQt::AlignLeft | TQt::WordBreak);
+
+    m_interceptExternalSleepCheck = new TQCheckBox("Intercept external suspend requests from other apps or systemd", suspendGroup);
+    TQLabel *descIntercept = new TQLabel("<font size=\"-1\" color=\"#555555\"><i>When enabled, YaBatman catches sleep requests initiated outside the app (e.g. systemctl, desktop menus) to apply hardware mitigations and visual transition effects.</i></font>", suspendGroup);
+    descIntercept->setAlignment(TQt::AlignLeft | TQt::WordBreak);
+
     advLayout->addWidget(suspendGroup);
     advLayout->addStretch();
     m_widgetStack->addWidget(advTab, 9);
@@ -830,6 +835,7 @@ void ConfigDialog::loadConfigValues() {
     m_statusBrightnessCheck->setChecked(m_config->adjust_brightness_when_status_change);
     m_autoAdaptCheck->setChecked(m_config->timeouts_auto_adapt);
     m_minSuspendCheck->setChecked(m_config->minimal_state_before_suspend);
+    m_interceptExternalSleepCheck->setChecked(m_config->intercept_external_sleep_requests);
 
     m_disableEthCombo->setCurrentItem(m_config->disable_eth);
     m_lowbatBtCheck->setChecked(m_config->lowbat_bt_off_on_display_off);
@@ -963,6 +969,7 @@ void ConfigDialog::saveConfigValues() {
     m_config->adjust_brightness_when_status_change = m_statusBrightnessCheck->isChecked();
     m_config->timeouts_auto_adapt = m_autoAdaptCheck->isChecked();
     m_config->minimal_state_before_suspend = m_minSuspendCheck->isChecked();
+    m_config->intercept_external_sleep_requests = m_interceptExternalSleepCheck->isChecked();
 
     m_config->disable_eth = m_disableEthCombo->currentItem();
     m_config->lowbat_bt_off_on_display_off = m_lowbatBtCheck->isChecked();

@@ -11,6 +11,7 @@
 
 # Work directory
 /__WORK/
+/_old_gtk3/
 
 # Temporary / editor files
 *~

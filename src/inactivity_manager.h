@@ -96,6 +96,7 @@ private slots:
     void lockScreenNow();
     void checkWifiAndLockRetry();
     void hideWifiOverlaySlot();
+    void reacquireDelayInhibitor();
 
 private:
     void checkBatteryStatus(bool force = false);

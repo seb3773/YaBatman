@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PKG_NAME="yabatman"
-PKG_VERSION="1.0"
+PKG_VERSION="1.1-2"
 PKG_MAINTAINER="seb3773"
 PKG_SECTION="admin"
 PKG_PRIORITY="optional"
@@ -93,7 +93,26 @@ EOF
 chmod 0644 "$PKGROOT/usr/share/applications/yabatman.desktop"
 
 # Autostart entry (UI launches at graphical session login)
-cat > "$PKGROOT/etc/xdg/autostart/yabatman.desktop" <<EOF
+if $STATIC_BUILD; then
+	mkdir -p -- "$PKGROOT/etc/xdg/autostart"
+	cat > "$PKGROOT/etc/xdg/autostart/yabatman.desktop" <<EOF
+[Desktop Entry]
+Version=1.0
+Name=YaBatman
+GenericName=Battery Monitor & Power Manager
+Comment=Battery monitor and power manager
+Exec=yabatman
+Icon=yabatman
+Terminal=false
+Type=Application
+X-GNOME-Autostart-enabled=true
+Categories=System;Utility;Monitor;HardwareSettings;
+EOF
+	chmod 0644 "$PKGROOT/etc/xdg/autostart/yabatman.desktop"
+else
+	# TDE / Trinity specific autostart directory (prevents dual startup in TDE)
+	mkdir -p -- "$PKGROOT/opt/trinity/share/autostart"
+	cat > "$PKGROOT/opt/trinity/share/autostart/yabatman.desktop" <<EOF
 [Desktop Entry]
 Version=1.0
 Name=YaBatman
@@ -106,16 +125,11 @@ Type=Application
 X-TDE-autostart-after=panel
 X-TDE-StartupNotify=false
 X-TDE-UniqueApplet=true
-X-GNOME-Autostart-enabled=true
 X-KDE-autostart-after=panel
 Categories=System;Utility;Monitor;HardwareSettings;
 EOF
-chmod 0644 "$PKGROOT/etc/xdg/autostart/yabatman.desktop"
-
-# TDE / Trinity specific autostart directory
-mkdir -p -- "$PKGROOT/opt/trinity/share/autostart"
-cp -a "$PKGROOT/etc/xdg/autostart/yabatman.desktop" "$PKGROOT/opt/trinity/share/autostart/yabatman.desktop"
-chmod 0644 "$PKGROOT/opt/trinity/share/autostart/yabatman.desktop"
+	chmod 0644 "$PKGROOT/opt/trinity/share/autostart/yabatman.desktop"
+fi
 
 # ── Application icon (hicolor tree with symlinks) ────────────────────
 ICON_SRC="$SRC_ROOT/icons/yabatman.png"
@@ -370,6 +384,9 @@ INNER_EOF
             fi
             ;;
     esac
+
+    # Clean up leftover xdg autostart entry if installing TDE package to avoid double launch
+    rm -f /etc/xdg/autostart/yabatman.desktop
 
     # Refresh icon cache
     if command -v gtk-update-icon-cache >/dev/null 2>&1; then

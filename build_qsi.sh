@@ -10,7 +10,7 @@ QSI_DIR="$SCRIPT_DIR/qsi_setup"
 DEB_DIR="$QSI_DIR/deb_packages"
 OUT_DIR="$QSI_DIR/output"
 TEMPLATES_DIR="$QSI_DIR/setup_templates"
-APP_VERSION="${1:-1.0}"
+APP_VERSION="${1:-1.1-2}"
 ARCH="$(dpkg --print-architecture)"
 
 echo "=================================================="

@@ -185,6 +185,7 @@ void ConfigManager::loadDefaults(YabatmanConfig& config) {
     config.adjust_brightness_when_status_change = true;
     config.timeouts_auto_adapt = true;
     config.minimal_state_before_suspend = true;
+    config.intercept_external_sleep_requests = true;
 
     // Freezing
     config.lowbat_freeze_services = true;
@@ -314,6 +315,7 @@ void ConfigManager::load(YabatmanConfig& config) {
     config.adjust_brightness_when_status_change = tdeConfig.readBoolEntry("AdjustBrightnessWhenStatusChange", config.adjust_brightness_when_status_change);
     config.timeouts_auto_adapt = tdeConfig.readBoolEntry("TimeoutsAutoAdapt", config.timeouts_auto_adapt);
     config.minimal_state_before_suspend = tdeConfig.readBoolEntry("MinimalStateBeforeSuspend", config.minimal_state_before_suspend);
+    config.intercept_external_sleep_requests = tdeConfig.readBoolEntry("InterceptExternalSleepRequests", config.intercept_external_sleep_requests);
 
     // Freezing
     tdeConfig.setGroup("Freezing");
@@ -434,6 +436,7 @@ void ConfigManager::save(const YabatmanConfig& config) {
     tdeConfig.writeEntry("AdjustBrightnessWhenStatusChange", config.adjust_brightness_when_status_change);
     tdeConfig.writeEntry("TimeoutsAutoAdapt", config.timeouts_auto_adapt);
     tdeConfig.writeEntry("MinimalStateBeforeSuspend", config.minimal_state_before_suspend);
+    tdeConfig.writeEntry("InterceptExternalSleepRequests", config.intercept_external_sleep_requests);
 
     // Freezing
     tdeConfig.setGroup("Freezing");

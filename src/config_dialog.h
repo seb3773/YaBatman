@@ -114,6 +114,7 @@ private:
     TQCheckBox *m_statusBrightnessCheck;
     TQCheckBox *m_autoAdaptCheck;
     TQCheckBox *m_minSuspendCheck;
+    TQCheckBox *m_interceptExternalSleepCheck;
     TQComboBox *m_disableEthCombo;
     TQCheckBox *m_lowbatBtCheck;
     TQCheckBox *m_powernapCheck;

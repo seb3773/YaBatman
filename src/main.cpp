@@ -272,7 +272,7 @@ int main(int argc, char **argv) {
 #ifdef PURE_TQT3
     TQApplication app(clean_argc, clean_argv);
 #else
-    TDEAboutData about("yabatman", "YaBatman", "1.0",
+    TDEAboutData about("yabatman", "YaBatman", "1.1",
                       "YaBatman Battery and Energy Manager for TDE",
                       TDEAboutData::License_GPL,
                       "(c) 2026 seb3773");
