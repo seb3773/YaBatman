@@ -1,0 +1,8 @@
+Origin: seb3773
+Label: YaBatman Repository
+Suite: stable
+Codename: stable
+Architectures: amd64
+Components: main
+Description: Official APT repository for YaBatman
+Date: Thu, 27 Aug 2026 09:47:10 +0000
