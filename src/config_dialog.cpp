@@ -1562,9 +1562,15 @@ void ConfigDialog::onAbout() {
     // Right: text details
     TQVBoxLayout *textLayout = new TQVBoxLayout(contentLayout, 5);
 
+#include "version.h"
+
     // Title: "YaBatman"
     TQLabel *titleLabel = new TQLabel("<font size=\"+2\"><b>YaBatman</b></font>", &dlg);
     textLayout->addWidget(titleLabel);
+
+    // Version
+    TQLabel *versionLabel = new TQLabel(TQString("<font size=\"-1\" color=\"#444444\"><b>Version %1</b></font>").arg(YABATMAN_VERSION_STRING), &dlg);
+    textLayout->addWidget(versionLabel);
 
     // Subtitle
     TQLabel *subLabel = new TQLabel("A tqt3 battery monitor\nand power manager for TDE", &dlg);

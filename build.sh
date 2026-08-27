@@ -17,6 +17,18 @@ fi
 
 mkdir -p -- "$BUILD_DIR"
 
+# Ensure src/version.h exists
+if [ ! -f "$SRC_ROOT/src/version.h" ]; then
+	cat > "$SRC_ROOT/src/version.h" <<EOF
+#ifndef YABATMAN_VERSION_H
+#define YABATMAN_VERSION_H
+
+#define YABATMAN_VERSION_STRING "1.1-2"
+
+#endif // YABATMAN_VERSION_H
+EOF
+fi
+
 # Ensure tqmoc is findable
 export PATH="/opt/trinity/bin:$PATH"
 

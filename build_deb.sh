@@ -10,17 +10,35 @@ PKG_PRIORITY="optional"
 SRC_ROOT="$(cd "$(dirname "$0")" && pwd)"
 ARCH="$(dpkg --print-architecture)"
 STATIC_BUILD=false
+
+for arg in "$@"; do
+	if [ "$arg" = "static" ] || [ "$arg" = "--static" ]; then
+		STATIC_BUILD=true
+	elif [[ "$arg" =~ ^[0-9] ]]; then
+		PKG_VERSION="$arg"
+	fi
+done
+
 BUILD_DIR="$SRC_ROOT/build"
 OUT_DEB="$SRC_ROOT/${PKG_NAME}_${PKG_VERSION}_${ARCH}.deb"
 DEPENDS="tdelibs14-trinity, libtqt3-mt, libtqtinterface, libnotify4, libudev1, libsystemd0, libx11-6, libxss1, libxext6, libxtst6"
 
-if test "${1:-}" = "static" || test "${1:-}" = "--static"; then
-	STATIC_BUILD=true
+if $STATIC_BUILD; then
 	BUILD_DIR="$SRC_ROOT/build-static"
 	OUT_DEB="$SRC_ROOT/${PKG_NAME}_${PKG_VERSION}_${ARCH}_static.deb"
 	DEPENDS="libnotify4, libudev1, libsystemd0, libx11-6, libxss1, libxext6, libxtst6"
-	echo "=== Packaging in STATIC standalone mode (yabatman_1.0_amd64_static.deb) ==="
+	echo "=== Packaging in STATIC standalone mode (${PKG_NAME}_${PKG_VERSION}_${ARCH}_static.deb) ==="
 fi
+
+# Automatically inject version into src/version.h for compilation
+cat > "$SRC_ROOT/src/version.h" <<EOF
+#ifndef YABATMAN_VERSION_H
+#define YABATMAN_VERSION_H
+
+#define YABATMAN_VERSION_STRING "$PKG_VERSION"
+
+#endif // YABATMAN_VERSION_H
+EOF
 
 PKGROOT="$BUILD_DIR/pkgroot"
 

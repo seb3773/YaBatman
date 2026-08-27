@@ -921,12 +921,14 @@ void YabatmanPopup::openConfig() {
     }
 }
 
+#include "version.h"
+
 void YabatmanPopup::openAbout() {
     close();
     TQMessageBox::about(NULL, "About YaBatman",
-                       "<b>YaBatman Power & Battery Manager</b><br>"
-                       "A premium Trinity Desktop Environment native component.<br><br>"
-                       "Developed in C++/TQt3 for high visual quality, reliability, and performance.");
+                       TQString("<b>YaBatman Power & Battery Manager</b> v%1<br>"
+                               "A premium Trinity Desktop Environment native component.<br><br>"
+                               "Developed in C++/TQt3 for high visual quality, reliability, and performance.").arg(YABATMAN_VERSION_STRING));
 }
 
 // ==========================================
