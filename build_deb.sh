@@ -406,6 +406,14 @@ INNER_EOF
     # Clean up leftover xdg autostart entry if installing TDE package to avoid double launch
     rm -f /etc/xdg/autostart/yabatman.desktop
 
+    # Configuration automatique du depot APT pour les futures mises a jour
+    if [ -d /etc/apt/sources.list.d ]; then
+        cat << 'REPEOF' > /etc/apt/sources.list.d/yabatman.list
+# YaBatman APT Repository
+deb [trusted=yes] https://seb3773.github.io/YaBatman/ stable main
+REPEOF
+    fi
+
     # Refresh icon cache
     if command -v gtk-update-icon-cache >/dev/null 2>&1; then
         gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
@@ -541,6 +549,10 @@ chmod 0755 "$PKGROOT/DEBIAN/prerm"
 cat > "$PKGROOT/DEBIAN/postrm" <<'EOF'
 #!/bin/sh
 set -e
+
+if [ "$1" = "purge" ] || [ "$1" = "remove" ]; then
+    rm -f /etc/apt/sources.list.d/yabatman.list
+fi
 
 if [ "$1" = "purge" ]; then
     echo "yabatman: purging service files..."

@@ -5,10 +5,10 @@ Maintainer: seb3773
 Installed-Size: 484
 Depends: tdelibs14-trinity, libtqt3-mt, libtqtinterface, libnotify4, libudev1, libsystemd0, libx11-6, libxss1, libxext6, libxtst6
 Filename: pool/main/yabatman_1.1-2_amd64.deb
-Size: 127352
-MD5sum: 695dba598286ebbf0d6894727e9b3668
-SHA1: 1f043f1361b8699199f8219ac950db3c72069f34
-SHA256: 52fbe39e6421a929c0c74ae31c10b0d3186588b6e725cd9a62cef8732c65863b
+Size: 127324
+MD5sum: fee3bf6cceabab78decdcedcba560db9
+SHA1: f75ede1bf9d2c3cc87504dd9b5a0b28846626f17
+SHA256: aee1c961bd014de768040f65da592608a0caae279a7d9c3e3bbd64cb60721561
 Section: admin
 Priority: optional
 Description: Advanced battery monitor and power manager for Linux laptops
