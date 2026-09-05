@@ -1,0 +1,33 @@
+#!/bin/sh
+# /lib/systemd/system-sleep/yabatman
+# YaBatman sleep and hibernation lifecycle hook
+
+case "$1" in
+    pre)
+        if [ "$2" = "suspend-then-hibernate" ] && [ "$SYSTEMD_SLEEP_ACTION" = "hibernate" ]; then
+            # Transition from suspend to hibernate:
+            # Re-enable all secondary CPU cores and boost performance profile so that
+            # memory snapshotting and swap write operations execute with full hardware bandwidth.
+            if [ -x /usr/sbin/yabatmand ]; then
+                /usr/sbin/yabatmand reenable_cpu_cores 2>/dev/null || true
+                /usr/sbin/yabatmand set_perf_profile 2>/dev/null || true
+            fi
+
+            # Direct sysfs fallback to guarantee all available CPU cores are online
+            for cpu in /sys/devices/system/cpu/cpu[1-9]*/online; do
+                [ -w "$cpu" ] && echo 1 > "$cpu" 2>/dev/null || true
+            done
+        fi
+        ;;
+    post)
+        if [ "$2" = "suspend-then-hibernate" ] && [ "$SYSTEMD_SLEEP_ACTION" = "suspend-after-failed-hibernate" ]; then
+            # Hibernation attempt aborted; system is falling back to suspend.
+            # Re-apply low power state to prevent battery depletion during remaining sleep.
+            if [ -x /usr/sbin/yabatmand ]; then
+                /usr/sbin/yabatmand disable_cpu_cores 2>/dev/null || true
+            fi
+        fi
+        ;;
+esac
+
+exit 0

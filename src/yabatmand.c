@@ -3157,7 +3157,35 @@ void am_i_root() {
 #endif
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc > 1) {
+        if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+            printf("Usage: yabatmand [command]\n"
+                   "Without arguments: start daemon\n"
+                   "With argument: send command to running daemon (e.g. reenable_cpu_cores)\n");
+            return 0;
+        }
+        int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (fd < 0) return 1;
+        struct sockaddr_un addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sun_family = AF_UNIX;
+        strncpy(addr.sun_path, SOCK_PATH, sizeof(addr.sun_path) - 1);
+        if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+            close(fd);
+            return 1;
+        }
+        size_t len = strlen(argv[1]);
+        if (write(fd, argv[1], len) != (ssize_t)len || write(fd, "\n", 1) != 1) {
+            close(fd);
+            return 1;
+        }
+        char reply[16];
+        (void)read(fd, reply, sizeof(reply));
+        close(fd);
+        return 0;
+    }
+
     #ifdef CONSOLE_DEBUG
     printf("\033[48;2;72;19;0m");
     printf("\n\n%s\033[38;2;144;238;144m       ------------------------------------------------------------------\033[39m\n",debugtag());

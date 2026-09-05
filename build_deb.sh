@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PKG_NAME="yabatman"
-PKG_VERSION="1.1-2"
+PKG_VERSION="1.1-3"
 PKG_MAINTAINER="seb3773"
 PKG_SECTION="admin"
 PKG_PRIORITY="optional"
@@ -85,6 +85,12 @@ mkdir -p -- \
 # Install binaries
 install -m 0755 "$BUILD_DIR/yabatman"  "$PKGROOT/usr/bin/yabatman"
 install -m 0755 "$BUILD_DIR/yabatmand" "$PKGROOT/usr/sbin/yabatmand"
+
+# Install systemd sleep hook
+if test -f "$SRC_ROOT/system-sleep/yabatman"; then
+	mkdir -p -- "$PKGROOT/lib/systemd/system-sleep"
+	install -m 0755 "$SRC_ROOT/system-sleep/yabatman" "$PKGROOT/lib/systemd/system-sleep/yabatman"
+fi
 
 # Strip staged binaries
 for staged in "$PKGROOT/usr/bin/yabatman" "$PKGROOT/usr/sbin/yabatmand"; do
