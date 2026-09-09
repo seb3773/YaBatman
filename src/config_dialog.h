@@ -186,6 +186,7 @@ private:
     TQSlider *m_ecoFreqSlider;
     TQLabel *m_ecoFreqLabel;
     TQCheckBox *m_balancedUsbCheck;
+    TQCheckBox *m_ultraPerfCheck;
 
     // Test buttons and widgets
     TQPushButton *m_testTransitionBtn;

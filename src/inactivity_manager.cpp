@@ -290,17 +290,7 @@ void InactivityManager::start() {
     }
 
     // Send advanced profile settings to daemon
-    TQString freqCmd;
-    freqCmd.sprintf("set_eco_freq_cap:%d", m_config->eco_freq_cap);
-    callDaemon(freqCmd);
-    TQString usbCmd;
-    usbCmd.sprintf("set_balanced_usb_autosuspend:%d", m_config->balanced_usb_autosuspend ? 1 : 0);
-    callDaemon(usbCmd);
-    if (m_config->charge_limit_enabled) {
-        TQString chargeCmd;
-        chargeCmd.sprintf("set_charge_limit:%d", m_config->charge_limit_value);
-        callDaemon(chargeCmd);
-    }
+    syncDaemonAdvancedSettings();
 }
 
 void InactivityManager::suspendIdle() {
@@ -431,6 +421,7 @@ void InactivityManager::onUdevRefreshTimeout() {
 }
 
 void InactivityManager::updateTimeouts() {
+    syncDaemonAdvancedSettings();
     forceCheck();
 }
 
@@ -1406,6 +1397,23 @@ void InactivityManager::callDaemon(const TQString &cmd) {
         write(sock, "\n", 1);
     }
     ::close(sock);
+}
+
+void InactivityManager::syncDaemonAdvancedSettings() {
+    TQString freqCmd;
+    freqCmd.sprintf("set_eco_freq_cap:%d", m_config->eco_freq_cap);
+    callDaemon(freqCmd);
+    TQString usbCmd;
+    usbCmd.sprintf("set_balanced_usb_autosuspend:%d", m_config->balanced_usb_autosuspend ? 1 : 0);
+    callDaemon(usbCmd);
+    TQString ultraCmd;
+    ultraCmd.sprintf("set_ultra_perf_mode:%d", m_config->ultra_performance_mode ? 1 : 0);
+    callDaemon(ultraCmd);
+    if (m_config->charge_limit_enabled) {
+        TQString chargeCmd;
+        chargeCmd.sprintf("set_charge_limit:%d", m_config->charge_limit_value);
+        callDaemon(chargeCmd);
+    }
 }
 
 static void superimposeImages(TQImage &base, const TQImage &overlay) {

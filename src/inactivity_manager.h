@@ -55,6 +55,7 @@ public:
     void setProfile(int profile);
     void sendNotification(const TQString &title, const TQString &message, bool critical);
     void callDaemon(const TQString &cmd);
+    void syncDaemonAdvancedSettings();
     void adjustProfile();
     int getRfkillState(const char *target);
     void setRfkillState(const char *target, int state);

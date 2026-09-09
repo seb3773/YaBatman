@@ -111,6 +111,7 @@ struct YabatmanConfig {
     int charge_limit_value;       // 60-100 %
     int eco_freq_cap;             // 20-80 %
     bool balanced_usb_autosuspend;
+    bool ultra_performance_mode;
 };
 
 class ConfigManager {

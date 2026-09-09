@@ -376,6 +376,12 @@ void ConfigDialog::setupUI() {
     m_balancedUsbCheck = new TQCheckBox("Enable USB autosuspend", balancedGroup);
     advLayout->addWidget(balancedGroup);
 
+    TQGroupBox *perfGroup = new TQGroupBox(1, TQt::Horizontal, "Performance Profile Tuning", advTab);
+    m_ultraPerfCheck = new TQCheckBox("Enable Extreme Performance tuning (Ultra mode)", perfGroup);
+    TQLabel *descUltra = new TQLabel("<font size=\"-1\" color=\"#555555\"><i>When enabled, the Performance profile forces maximum hardware state (disables PCIe ASPM power saving, disables PCI runtime power management, and raises idle base clocks). Not recommended for daily use due to increased heat and battery drain; intended for benchmarks or extreme sustained workloads.</i></font>", perfGroup);
+    descUltra->setAlignment(TQt::AlignLeft | TQt::WordBreak);
+    advLayout->addWidget(perfGroup);
+
     TQGroupBox *suspendGroup = new TQGroupBox(1, TQt::Horizontal, "Suspend Tuning (s2idle Mitigation)", advTab);
     m_minSuspendCheck = new TQCheckBox("Put system in minimum energy state before suspend", suspendGroup);
     TQLabel *descLabel = new TQLabel("<font size=\"-1\" color=\"#555555\"><i>Force the hardware into a minimum power state before sleep to mitigate faulty or incomplete BIOS/firmware s2idle (modern standby) implementations.</i></font>", suspendGroup);
@@ -828,6 +834,7 @@ void ConfigDialog::loadConfigValues() {
     freqTxt.sprintf("%d%%", m_config->eco_freq_cap);
     m_ecoFreqLabel->setText(freqTxt);
     m_balancedUsbCheck->setChecked(m_config->balanced_usb_autosuspend);
+    m_ultraPerfCheck->setChecked(m_config->ultra_performance_mode);
 
     // Adaptive Tab
     m_idleBrightnessCheck->setChecked(m_config->reduce_brightness_more_during_idle);
@@ -963,6 +970,7 @@ void ConfigDialog::saveConfigValues() {
     m_config->charge_limit_value = m_chargeLimitSpin->value();
     m_config->eco_freq_cap = m_ecoFreqSlider->value();
     m_config->balanced_usb_autosuspend = m_balancedUsbCheck->isChecked();
+    m_config->ultra_performance_mode = m_ultraPerfCheck->isChecked();
 
     m_config->reduce_brightness_more_during_idle = m_idleBrightnessCheck->isChecked();
     m_config->reduce_brightness_when_charge_decrease = m_chargeBrightnessCheck->isChecked();

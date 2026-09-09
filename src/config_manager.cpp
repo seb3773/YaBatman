@@ -265,6 +265,7 @@ void ConfigManager::loadDefaults(YabatmanConfig& config) {
     config.charge_limit_value = 100;
     config.eco_freq_cap = 40;
     config.balanced_usb_autosuspend = true;
+    config.ultra_performance_mode = false;
 }
 
 void ConfigManager::load(YabatmanConfig& config) {
@@ -387,6 +388,7 @@ void ConfigManager::load(YabatmanConfig& config) {
     config.charge_limit_value = tdeConfig.readNumEntry("ChargeLimitValue", config.charge_limit_value);
     config.eco_freq_cap = tdeConfig.readNumEntry("EcoFreqCap", config.eco_freq_cap);
     config.balanced_usb_autosuspend = tdeConfig.readBoolEntry("BalancedUsbAutosuspend", config.balanced_usb_autosuspend);
+    config.ultra_performance_mode = tdeConfig.readBoolEntry("UltraPerformanceMode", config.ultra_performance_mode);
     config.last_calibration = tdeConfig.readEntry("LastCalibration", config.last_calibration);
 }
 
@@ -508,6 +510,7 @@ void ConfigManager::save(const YabatmanConfig& config) {
     tdeConfig.writeEntry("ChargeLimitValue", config.charge_limit_value);
     tdeConfig.writeEntry("EcoFreqCap", config.eco_freq_cap);
     tdeConfig.writeEntry("BalancedUsbAutosuspend", config.balanced_usb_autosuspend);
+    tdeConfig.writeEntry("UltraPerformanceMode", config.ultra_performance_mode);
     tdeConfig.writeEntry("LastCalibration", config.last_calibration);
 
     tdeConfig.sync();

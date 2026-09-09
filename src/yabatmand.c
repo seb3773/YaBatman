@@ -106,6 +106,7 @@ static unsigned long min_freq_khz_sys;
 // Advanced profile tuning (configurable from GUI)
 static int eco_freq_cap_pct = 40;
 static int balanced_usb_autosuspend_flag = 1;
+static int ultra_perf_mode_flag = 0;
 
 
 typedef enum {
@@ -1636,6 +1637,51 @@ void set_platform_profile(const char *profile) {
 
 
 
+static int is_amd_apu(const char *card_name) {
+    char path[PATH_MAX];
+
+    // 1. Check vendor is AMD (0x1002)
+    snprintf(path, sizeof(path), "/sys/class/drm/%s/device/vendor", card_name);
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    unsigned int vendor = 0;
+    if (fscanf(f, "%x", &vendor) != 1) {
+        fclose(f);
+        return 0;
+    }
+    fclose(f);
+    if (vendor != 0x1002) return 0;
+
+    // 2. On an AMD APU, CPU is also AMD
+    if (cpu_type != CPU_TYPE_AMD) return 0;
+
+    // 3. Check if it's the primary boot VGA device (integrated graphics is always boot VGA)
+    snprintf(path, sizeof(path), "/sys/class/drm/%s/device/boot_vga", card_name);
+    f = fopen(path, "r");
+    if (f) {
+        int boot_vga = 0;
+        if (fscanf(f, "%d", &boot_vga) == 1) {
+            fclose(f);
+            return boot_vga ? 1 : 0;
+        }
+        fclose(f);
+    }
+
+    // 4. Fallback: check mem_info_vram_total (< 3GB indicates carved-out system RAM used by APU)
+    snprintf(path, sizeof(path), "/sys/class/drm/%s/device/mem_info_vram_total", card_name);
+    f = fopen(path, "r");
+    if (f) {
+        unsigned long long vram = 0;
+        if (fscanf(f, "%llu", &vram) == 1) {
+            fclose(f);
+            return (vram < 3221225472ULL) ? 1 : 0;
+        }
+        fclose(f);
+    }
+
+    return 1; // Safe fallback: treat as APU if AMD CPU + AMD GPU
+}
+
 static inline int em_set_gpu_power_profile(const char *gpuprofile) {
     int ret = 0, devices_found = 0;
     // amd (/sys/class/drm)
@@ -1652,7 +1698,16 @@ static inline int em_set_gpu_power_profile(const char *gpuprofile) {
                 const char *val = NULL;
                 if (strcmp(gpuprofile, "low_power") == 0) val = "low";
                 else if (strcmp(gpuprofile, "balanced") == 0) val = "auto";
-                else if (strcmp(gpuprofile, "performance") == 0) val = "high";
+                else if (strcmp(gpuprofile, "performance") == 0) {
+                    if (is_amd_apu(entry->d_name)) {
+                        val = "auto";
+                        #ifdef CONSOLE_DEBUG
+                        printf("\033[37m%s \033[38;2;144;238;144m ¤¤ energy_manager: AMD APU detected on %s, keeping DPM level 'auto' for stability.\033[39m\n", debugtag(), entry->d_name);
+                        #endif
+                    } else {
+                        val = "high";
+                    }
+                }
                 else val = "auto";
                 if (em_write_sysfs(amd_path, val) != 0) {
                     #ifdef CONSOLE_DEBUG
@@ -1942,12 +1997,12 @@ static inline int set_energy_profile(profile_type_t profile, int ultra) {
             platform_profile = "performance";
             gpu_profile = "performance";
             pstate_epp = "performance";
-            pcie_aspm = "performance";
+            pcie_aspm = ultra ? "performance" : "default";
             sata_power = "max_performance";
             io_scheduler = "performance";
             cpu_boost = 1;
             usb_autosuspend = 0;
-            runtime_pm = 0;
+            runtime_pm = ultra ? 0 : 1;
             wifi_power_save = 0;
             bluetooth_power_save = 0;
             sound_power_save = 0;
@@ -2005,13 +2060,13 @@ if (em_set_cpu_perf_policy(pstate_epp) != 0) {
     unsigned long target_max_freq = (profile == PROFILE_PERFORMANCE) ? max_freq_khz_sys : (unsigned long)(max_freq_khz_sys * max_freq_factor);
     if (target_max_freq < min_freq_khz_sys) target_max_freq = min_freq_khz_sys;
 unsigned long target_min_freq = 0;
-if (profile == PROFILE_PERFORMANCE) {
+if (profile == PROFILE_PERFORMANCE && ultra) {
     target_min_freq = target_max_freq / 2;
     if (target_min_freq < min_freq_khz_sys) {
         target_min_freq = min_freq_khz_sys;
     }
 } else {
-target_min_freq = min_freq_khz_sys;
+    target_min_freq = min_freq_khz_sys;
 }
     if (em_set_cpu_frequency_range(target_min_freq, target_max_freq) != 0) {
         #ifdef CONSOLE_DEBUG
@@ -2039,7 +2094,7 @@ if (cpu_type == CPU_TYPE_AMD) {
     } else if (profile == PROFILE_BALANCED) {
         if (em_set_amd_cpu_perf_pct(60, 100) != 0) error_count++;
     } else if (profile == PROFILE_PERFORMANCE) {
-        if (em_set_amd_cpu_perf_pct(100, 100) != 0) error_count++;
+        if (em_set_amd_cpu_perf_pct(ultra ? 100 : 20, 100) != 0) error_count++;
     }
 } else if (cpu_type == CPU_TYPE_INTEL) {
     if (profile == PROFILE_LOW_POWER || profile == PROFILE_ULTRA_LOW_POWER) {
@@ -2047,7 +2102,7 @@ if (cpu_type == CPU_TYPE_AMD) {
     } else if (profile == PROFILE_BALANCED) {
         if (em_set_intel_cpu_perf_pct(40, 100) != 0) error_count++;
     } else if (profile == PROFILE_PERFORMANCE) {
-        if (em_set_intel_cpu_perf_pct(100, 100) != 0) error_count++;
+        if (em_set_intel_cpu_perf_pct(ultra ? 100 : 20, 100) != 0) error_count++;
     }
 }
 
@@ -2182,7 +2237,7 @@ static inline int set_normal_profile() {
     return set_energy_profile(PROFILE_BALANCED, 0);
 }
 static inline int set_perf_profile() {
-    return set_energy_profile(PROFILE_PERFORMANCE, 0);
+    return set_energy_profile(PROFILE_PERFORMANCE, ultra_perf_mode_flag);
 }
 
 
@@ -3099,6 +3154,14 @@ else if (strcmp(cmd, "set_balanced_usb_autosuspend") == 0) {
     balanced_usb_autosuspend_flag = (val != 0) ? 1 : 0;
     #ifdef CONSOLE_DEBUG
     printf("\033[37m%s \033[38;2;144;238;144m ¤¤ energy_manager: Balanced USB autosuspend set to %d.\033[39m\n", debugtag(), balanced_usb_autosuspend_flag);
+    #endif
+    dprintf(client_sock, "0\n");
+}
+else if (strcmp(cmd, "set_ultra_perf_mode") == 0) {
+    int val = atoi(arg);
+    ultra_perf_mode_flag = (val != 0) ? 1 : 0;
+    #ifdef CONSOLE_DEBUG
+    printf("\033[37m%s \033[38;2;144;238;144m ¤¤ energy_manager: Ultra performance mode set to %d.\033[39m\n", debugtag(), ultra_perf_mode_flag);
     #endif
     dprintf(client_sock, "0\n");
 }
