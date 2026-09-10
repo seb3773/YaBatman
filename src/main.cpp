@@ -4,6 +4,7 @@
 #include <tdeapplication.h>
 #include <tdecmdlineargs.h>
 #include <tdeaboutdata.h>
+#include <dcopclient.h>
 #endif
 #include <tqobject.h>
 #include <ntqmessagebox.h>
@@ -80,6 +81,7 @@ public:
         connect(m_inactivity, TQT_SIGNAL(wokeUp()), this, TQT_SLOT(handleWakeUp()));
         connect(m_inactivity, TQT_SIGNAL(blackoutScreensaver(bool)), this, TQT_SLOT(handleBlackoutScreensaver(bool)));
         connect(m_inactivity, TQT_SIGNAL(triggerSleepTransition(int)), this, TQT_SLOT(runSleepTransition(int)));
+        connect(m_inactivity, TQT_SIGNAL(dismissPopups()), this, TQT_SLOT(dismissAllDialogs()));
 
         m_inactivity->start();
     }
@@ -203,6 +205,9 @@ private slots:
     }
 
     void dismissAllDialogs() {
+        if (m_tray) {
+            m_tray->closePopup();
+        }
         TQWidgetList *list = TQApplication::topLevelWidgets();
         if (list) {
             TQValueList<TQWidget*> dialogs;
@@ -210,7 +215,7 @@ private slots:
             TQWidget *w;
             while ((w = it.current()) != 0) {
                 ++it;
-                if (w->inherits("TQDialog")) {
+                if (w->inherits("TQDialog") || w->inherits("YabatmanPopup")) {
                     dialogs.append(w);
                 }
             }
@@ -282,6 +287,7 @@ int main(int argc, char **argv) {
     TDECmdLineArgs::init(clean_argc, clean_argv, &about);
 
     TDEApplication app;
+    app.dcopClient()->registerAs("yabatman", false);
 #endif
 
     delete[] clean_argv;

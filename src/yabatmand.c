@@ -36,6 +36,7 @@
 #include <regex.h>
 #include <linux/ethtool.h>
 #include <linux/sockios.h>
+#include <poll.h>
 
 #define SOCK_PATH "/run/yabatmand/daemon.sock"
 #define CPU_SYSFS_PATH "/sys/devices/system/cpu/"
@@ -3165,6 +3166,10 @@ else if (strcmp(cmd, "set_ultra_perf_mode") == 0) {
     #endif
     dprintf(client_sock, "0\n");
 }
+else if (strcmp(cmd, "stop") == 0 || strcmp(cmd, "quit") == 0) {
+    dprintf(client_sock, "0\n");
+    keep_running = 0;
+}
     else {
         dprintf(client_sock, "-1\n");
     }
@@ -3259,8 +3264,15 @@ int main(int argc, char **argv) {
     #endif
 am_i_root();
 signal(SIGPIPE, SIG_IGN);
-signal(SIGINT, signal_handler);
-signal(SIGTERM, signal_handler);
+
+struct sigaction sa;
+memset(&sa, 0, sizeof(sa));
+sa.sa_handler = signal_handler;
+sigemptyset(&sa.sa_mask);
+sa.sa_flags = 0; /* Important: do NOT use SA_RESTART so poll()/accept() are interrupted immediately */
+sigaction(SIGINT, &sa, NULL);
+sigaction(SIGTERM, &sa, NULL);
+
 int result = chmod_backlight_brightness();
     #ifdef CONSOLE_DEBUG
     if (result == 0) {
@@ -3352,19 +3364,42 @@ merge_whitelists();
         printf("\033[48;2;72;19;0m\033[37m%s\n",debugtag());
         #endif 
     while (keep_running) {
-        client_sock = accept(server_sock, NULL, NULL);
-        if (client_sock < 0) {
-            if (errno == EINTR) continue;
-            perror("accept");
+        struct pollfd pfd;
+        pfd.fd = server_sock;
+        pfd.events = POLLIN;
+        int ret = poll(&pfd, 1, 1000);
+        if (ret < 0) {
+            if (errno == EINTR) {
+                if (!keep_running) break;
+                continue;
+            }
+            perror("poll");
+            break;
+        }
+        if (!keep_running) break;
+        if (ret == 0) {
+            /* Periodic 1s timeout, check keep_running flag */
             continue;
         }
-        ssize_t len = read(client_sock, buffer, sizeof(buffer) - 1);
-        if (len > 0) {
-            buffer[len] = '\0';
-            buffer[strcspn(buffer, "\r\n")] = '\0';
-            handle_command(buffer, client_sock);
+
+        if (pfd.revents & POLLIN) {
+            client_sock = accept(server_sock, NULL, NULL);
+            if (client_sock < 0) {
+                if (errno == EINTR) {
+                    if (!keep_running) break;
+                    continue;
+                }
+                perror("accept");
+                continue;
+            }
+            ssize_t len = read(client_sock, buffer, sizeof(buffer) - 1);
+            if (len > 0) {
+                buffer[len] = '\0';
+                buffer[strcspn(buffer, "\r\n")] = '\0';
+                handle_command(buffer, client_sock);
+            }
+            close(client_sock);
         }
-        close(client_sock);
     }
 
     /* Graceful shutdown: restore system to a safe state */

@@ -2,6 +2,8 @@
 #include "yabatman_utils.h"
 #include "battery_icons.h"
 #include "screensavers.h"
+#include "theme_utils.h"
+#include <tqapplication.h>
 #include <tqlayout.h>
 #include <tqgroupbox.h>
 #include <tqlabel.h>
@@ -83,29 +85,21 @@ void ConfigDialog::setupUI() {
     TQVBoxLayout *mainLayout = new TQVBoxLayout(this, 0, 0);
 
     // Title Block
-    TQFrame *headerFrame = new TQFrame(this);
-    headerFrame->setPaletteBackgroundColor(TQColor(220, 220, 220)); // Light gray background
+    m_headerFrame = new TQFrame(this);
+    TQHBoxLayout *titleLayout = new TQHBoxLayout(m_headerFrame, 10, 10);
     
-    TQHBoxLayout *titleLayout = new TQHBoxLayout(headerFrame, 10, 10);
-    
-    TQLabel *iconLabel = new TQLabel(headerFrame);
-    TQImage img;
-    if (img.loadFromData(settings_data, settings_size, "PNG")) {
-        TQPixmap pm;
-        pm.convertFromImage(img);
-        iconLabel->setPixmap(pm);
-    }
-    titleLayout->addWidget(iconLabel, 0, AlignVCenter);
+    m_headerIcon = new TQLabel(m_headerFrame);
+    titleLayout->addWidget(m_headerIcon, 0, AlignVCenter);
 
-    TQLabel *titleText = new TQLabel("Settings", headerFrame);
-    TQFont f = titleText->font();
+    m_headerTitle = new TQLabel("Settings", m_headerFrame);
+    TQFont f = m_headerTitle->font();
     f.setPointSize(f.pointSize() + 3);
     f.setBold(true);
-    titleText->setFont(f);
-    titleLayout->addWidget(titleText, 0, AlignVCenter);
+    m_headerTitle->setFont(f);
+    titleLayout->addWidget(m_headerTitle, 0, AlignVCenter);
     titleLayout->addStretch();
 
-    mainLayout->addWidget(headerFrame);
+    mainLayout->addWidget(m_headerFrame);
 
     TQVBoxLayout *contentLayout = new TQVBoxLayout(mainLayout, 10);
     contentLayout->setMargin(15);
@@ -116,7 +110,21 @@ void ConfigDialog::setupUI() {
     m_sidebar = new TQListBox(this);
     m_sidebar->setFixedWidth(230);
     m_sidebar->setFrameShape(TQFrame::NoFrame);
-    m_sidebar->setPaletteBackgroundColor(colorGroup().background());
+    TQColor sideBg = colorGroup().background();
+    TQPalette sidePal = palette();
+    sidePal.setColor(TQPalette::Active, TQColorGroup::Background, sideBg);
+    sidePal.setColor(TQPalette::Inactive, TQColorGroup::Background, sideBg);
+    sidePal.setColor(TQPalette::Disabled, TQColorGroup::Background, sideBg);
+    sidePal.setColor(TQPalette::Active, TQColorGroup::Base, sideBg);
+    sidePal.setColor(TQPalette::Inactive, TQColorGroup::Base, sideBg);
+    sidePal.setColor(TQPalette::Disabled, TQColorGroup::Base, sideBg);
+    m_sidebar->setPalette(sidePal);
+    m_sidebar->setPaletteBackgroundColor(sideBg);
+    if (m_sidebar->viewport()) {
+        m_sidebar->viewport()->setPalette(sidePal);
+        m_sidebar->viewport()->setBackgroundMode(TQt::PaletteBackground);
+        m_sidebar->viewport()->setPaletteBackgroundColor(sideBg);
+    }
     TQFont sidebarFont = m_sidebar->font();
     sidebarFont.setBold(true);
     m_sidebar->setFont(sidebarFont);
@@ -391,9 +399,13 @@ void ConfigDialog::setupUI() {
     TQLabel *descIntercept = new TQLabel("<font size=\"-1\" color=\"#555555\"><i>When enabled, YaBatman catches sleep requests initiated outside the app (e.g. systemctl, desktop menus) to apply hardware mitigations and visual transition effects.</i></font>", suspendGroup);
     descIntercept->setAlignment(TQt::AlignLeft | TQt::WordBreak);
 
+    m_unmountExternalCheck = new TQCheckBox("Unmount external USB storage before suspend", suspendGroup);
+    TQLabel *descUnmount = new TQLabel("<font size=\"-1\" color=\"#555555\"><i>Safely flush write caches and unmount removable drives before sleeping to prevent filesystem corruption if disconnected while suspended.</i></font>", suspendGroup);
+    descUnmount->setAlignment(TQt::AlignLeft | TQt::WordBreak);
+
     advLayout->addWidget(suspendGroup);
     advLayout->addStretch();
-    m_widgetStack->addWidget(advTab, 9);
+    m_widgetStack->addWidget(advTab, 10);
 
     // ==========================================
     // Tab 4: Adaptive & Connectivity
@@ -562,7 +574,31 @@ void ConfigDialog::setupUI() {
     new ConfigSidebarItem(m_sidebar, "Processes Freezing");
 
     // ==========================================
-    // Tab 8: Transitions & Screensavers
+    // Tab 8: Sleep Inhibitors
+    // ==========================================
+    TQWidget *inhibTab = new TQWidget(m_widgetStack);
+    TQVBoxLayout *inhibLayout = new TQVBoxLayout(inhibTab, 15, 10);
+
+    TQGroupBox *inhibitorGroup = new TQGroupBox(1, TQt::Horizontal, "Sleep Inhibitor Workloads", inhibTab);
+    TQLabel *descInhibit = new TQLabel("<font size=\"-1\" color=\"#555555\"><i>Prevent automatic display dimming, display sleep, and system auto-suspend while any of these process names are actively running (e.g. 3D renderers, compilers, video transcoders, disc burning, long downloads).<br><br>Processes are scanned with ultra-low overhead directly via /proc/[pid]/comm.</i></font>", inhibitorGroup);
+    descInhibit->setAlignment(TQt::AlignLeft | TQt::WordBreak);
+    m_sleepInhibitorsList = new TQListBox(inhibitorGroup);
+    TQHBoxLayout *inhibitBtns = new TQHBoxLayout(10);
+    m_sleepInhibitorAddBtn = new TQPushButton("Add Process", inhibitorGroup);
+    connect(m_sleepInhibitorAddBtn, TQT_SIGNAL(clicked()), this, TQT_SLOT(onAddSleepInhibitor()));
+    m_sleepInhibitorDelBtn = new TQPushButton("Remove", inhibitorGroup);
+    connect(m_sleepInhibitorDelBtn, TQT_SIGNAL(clicked()), this, TQT_SLOT(onRemoveSleepInhibitor()));
+    inhibitBtns->addWidget(m_sleepInhibitorAddBtn);
+    inhibitBtns->addWidget(m_sleepInhibitorDelBtn);
+    ((TQBoxLayout*)inhibitorGroup->layout())->addLayout(inhibitBtns);
+    inhibLayout->addWidget(inhibitorGroup);
+    inhibLayout->addStretch();
+
+    m_widgetStack->addWidget(inhibTab, 7);
+    new ConfigSidebarItem(m_sidebar, "Sleep Inhibitors");
+
+    // ==========================================
+    // Tab 9: Transitions & Screensavers
     // ==========================================
     TQWidget *fxTab = new TQWidget(m_widgetStack);
     TQVBoxLayout *fxTabLayout = new TQVBoxLayout(fxTab, 15, 10);
@@ -587,16 +623,42 @@ void ConfigDialog::setupUI() {
     TQWidget *ssContainer = new TQWidget(fxGroup);
     TQHBoxLayout *ssLayout = new TQHBoxLayout(ssContainer, 0, 10);
     m_screensaverCombo = new TQComboBox(false, ssContainer);
+
+    m_screensaverIds.clear();
+    m_screensaverCombo->clear();
+
+    m_screensaverIds.append("random");
     m_screensaverCombo->insertItem("Random Screensaver");
+    m_screensaverIds.append("clock");
     m_screensaverCombo->insertItem("Clock");
+    m_screensaverIds.append("analog_clock");
     m_screensaverCombo->insertItem("Analog Clock");
+    m_screensaverIds.append("matrix");
     m_screensaverCombo->insertItem("Matrix Digital Rain");
+    m_screensaverIds.append("pipes");
     m_screensaverCombo->insertItem("3D Pipes Screensaver");
+    m_screensaverIds.append("plasma");
     m_screensaverCombo->insertItem("Plasma Clouds Screensaver");
+    m_screensaverIds.append("slideshow");
     m_screensaverCombo->insertItem("Pictures Slideshow Screensaver");
+    m_screensaverIds.append("starfield");
     m_screensaverCombo->insertItem("Starfield Warp Screensaver");
+
+    m_tdeScreensavers = TDEScreensavers::getAvailableScreensavers();
+    for (TQValueList<TDEScreensaverInfo>::ConstIterator it = m_tdeScreensavers.begin(); it != m_tdeScreensavers.end(); ++it) {
+        m_screensaverIds.append((*it).id);
+        m_screensaverCombo->insertItem(TQString("[TDE] ") + (*it).name);
+    }
+
+    m_screensaverIds.append("none");
     m_screensaverCombo->insertItem("Disable Screensaver");
+
     ssLayout->addWidget(m_screensaverCombo, 1);
+
+    m_screensaverSetupBtn = new TQPushButton("Setup...", ssContainer);
+    connect(m_screensaverSetupBtn, TQT_SIGNAL(clicked()), this, TQT_SLOT(onSetupScreensaverClicked()));
+    ssLayout->addWidget(m_screensaverSetupBtn);
+
     m_testScreensaverBtn = new TQPushButton("Test", ssContainer);
     connect(m_testScreensaverBtn, TQT_SIGNAL(clicked()), this, TQT_SLOT(onTestScreensaver()));
     ssLayout->addWidget(m_testScreensaverBtn);
@@ -621,7 +683,7 @@ void ConfigDialog::setupUI() {
     connect(m_screensaverCombo, TQT_SIGNAL(activated(int)), this, TQT_SLOT(onScreensaverChanged(int)));
     fxTabLayout->addWidget(fxGroup);
     fxTabLayout->addStretch();
-    m_widgetStack->addWidget(fxTab, 7);
+    m_widgetStack->addWidget(fxTab, 8);
     new ConfigSidebarItem(m_sidebar, "Transitions & Screensavers");
 
     // ==========================================
@@ -634,12 +696,24 @@ void ConfigDialog::setupUI() {
 
     TQWidget *darkContainer = new TQWidget(lookGroup);
     TQHBoxLayout *darkLayout = new TQHBoxLayout(darkContainer, 0, 10);
-    TQLabel *darkLbl = new TQLabel("Systray Popup Dark Mode:", darkContainer);
+    TQLabel *darkLbl = new TQLabel("Theme Mode:", darkContainer);
     darkLayout->addWidget(darkLbl);
     m_darkModeCombo = new TQComboBox(false, darkContainer);
-    m_darkModeCombo->insertItem("Match Desktop TDE Theme");
-    m_darkModeCombo->insertItem("Force Dark Mode Visual Panel");
+    m_darkModeCombo->insertItem("Follow TDE");
+    m_darkModeCombo->insertItem("Light");
+    m_darkModeCombo->insertItem("Dark");
+    connect(m_darkModeCombo, TQT_SIGNAL(activated(int)), this, TQT_SLOT(onDarkModeChanged(int)));
     darkLayout->addWidget(m_darkModeCombo);
+
+    TQWidget *batStyleContainer = new TQWidget(lookGroup);
+    TQHBoxLayout *batStyleLayout = new TQHBoxLayout(batStyleContainer, 0, 10);
+    TQLabel *batStyleLbl = new TQLabel("Battery Style:", batStyleContainer);
+    batStyleLayout->addWidget(batStyleLbl);
+    m_batteryStyleCombo = new TQComboBox(false, batStyleContainer);
+    m_batteryStyleCombo->insertItem("win10");
+    m_batteryStyleCombo->insertItem("win11");
+    m_batteryStyleCombo->insertItem("Alt");
+    batStyleLayout->addWidget(m_batteryStyleCombo);
 
     m_closeAnimCheck = new TQCheckBox("Enable fade-out animation when popup tray auto-closes", lookGroup);
     m_colouredIconCheck = new TQCheckBox("Use coloured battery levels in system tray icon", lookGroup);
@@ -727,7 +801,7 @@ void ConfigDialog::setupUI() {
 
     gfxLayout->addWidget(lookGroup);
     gfxLayout->addStretch();
-    m_widgetStack->addWidget(gfxTab, 8);
+    m_widgetStack->addWidget(gfxTab, 9);
     new ConfigSidebarItem(m_sidebar, "Appearance");
     new ConfigSidebarItem(m_sidebar, "Advanced");
 
@@ -758,6 +832,8 @@ void ConfigDialog::setupUI() {
     TQPushButton *cancelBtn = new TQPushButton("Cancel", this);
     connect(cancelBtn, TQT_SIGNAL(clicked()), this, TQT_SLOT(reject()));
     bottom->addWidget(cancelBtn);
+
+    applyThemeToDialog(m_config ? m_config->dark_mode : 0);
 
     resize(980, 640);
 }
@@ -835,6 +911,11 @@ void ConfigDialog::loadConfigValues() {
     m_ecoFreqLabel->setText(freqTxt);
     m_balancedUsbCheck->setChecked(m_config->balanced_usb_autosuspend);
     m_ultraPerfCheck->setChecked(m_config->ultra_performance_mode);
+    m_unmountExternalCheck->setChecked(m_config->unmount_external_on_suspend);
+    m_sleepInhibitorsList->clear();
+    for (TQStringList::Iterator it = m_config->sleep_inhibitor_processes.begin(); it != m_config->sleep_inhibitor_processes.end(); ++it) {
+        m_sleepInhibitorsList->insertItem(*it);
+    }
 
     // Adaptive Tab
     m_idleBrightnessCheck->setChecked(m_config->reduce_brightness_more_during_idle);
@@ -889,24 +970,27 @@ void ConfigDialog::loadConfigValues() {
     onTvEffectComboChanged(m_tvEffectCombo->currentItem());
 
     int ssIdx = 0;
-    if (m_config->ac_screensaver == "clock") ssIdx = 1;
-    else if (m_config->ac_screensaver == "analog_clock") ssIdx = 2;
-    else if (m_config->ac_screensaver == "matrix") ssIdx = 3;
-    else if (m_config->ac_screensaver == "pipes") ssIdx = 4;
-    else if (m_config->ac_screensaver == "plasma") ssIdx = 5;
-    else if (m_config->ac_screensaver == "slideshow") ssIdx = 6;
-    else if (m_config->ac_screensaver == "starfield") ssIdx = 7;
-    else if (m_config->ac_screensaver == "none") ssIdx = 8;
+    int foundIdx = m_screensaverIds.findIndex(m_config->ac_screensaver);
+    if (foundIdx >= 0) {
+        ssIdx = foundIdx;
+    }
     m_screensaverCombo->setCurrentItem(ssIdx);
     onScreensaverChanged(ssIdx);
 
     m_slideshowDirEdit->setText(m_config->slideshow_image_dir);
     m_slideshowRandomCheck->setChecked(m_config->slideshow_random_order);
-    m_slideshowRandomCheck->setEnabled(ssIdx == 6);
     m_slideshowZoomCheck->setChecked(m_config->slideshow_zoom_effect);
-    m_slideshowZoomCheck->setEnabled(ssIdx == 6);
-    m_closeAnimCheck->setChecked(m_config->close_popup_animation);
-    m_darkModeCombo->setCurrentItem(m_config->dark_mode);
+    int dm = m_config->dark_mode;
+    if (dm < 0 || dm > 2) dm = 0;
+    m_darkModeCombo->setCurrentItem(dm);
+    applyThemeToDialog(dm);
+    if (m_config->battery_icon_style == "win11") {
+        m_batteryStyleCombo->setCurrentItem(1);
+    } else if (m_config->battery_icon_style == "alt" || m_config->battery_icon_style == "Alt") {
+        m_batteryStyleCombo->setCurrentItem(2);
+    } else {
+        m_batteryStyleCombo->setCurrentItem(0);
+    }
     m_opacitySlider->setValue((int)(m_config->popup_opacity * 100));
     m_colouredIconCheck->setChecked(m_config->coloured_icon);
     onColouredIconToggled(m_config->coloured_icon);
@@ -971,6 +1055,11 @@ void ConfigDialog::saveConfigValues() {
     m_config->eco_freq_cap = m_ecoFreqSlider->value();
     m_config->balanced_usb_autosuspend = m_balancedUsbCheck->isChecked();
     m_config->ultra_performance_mode = m_ultraPerfCheck->isChecked();
+    m_config->unmount_external_on_suspend = m_unmountExternalCheck->isChecked();
+    m_config->sleep_inhibitor_processes.clear();
+    for (unsigned int i = 0; i < m_sleepInhibitorsList->count(); ++i) {
+        m_config->sleep_inhibitor_processes.append(m_sleepInhibitorsList->text(i));
+    }
 
     m_config->reduce_brightness_more_during_idle = m_idleBrightnessCheck->isChecked();
     m_config->reduce_brightness_when_charge_decrease = m_chargeBrightnessCheck->isChecked();
@@ -1017,21 +1106,25 @@ void ConfigDialog::saveConfigValues() {
     m_config->tv_effect_on_suspend_and_shutdown = m_tvEffectCombo->currentItem();
 
     int ssIdx = m_screensaverCombo->currentItem();
-    if (ssIdx == 0) m_config->ac_screensaver = "random";
-    else if (ssIdx == 1) m_config->ac_screensaver = "clock";
-    else if (ssIdx == 2) m_config->ac_screensaver = "analog_clock";
-    else if (ssIdx == 3) m_config->ac_screensaver = "matrix";
-    else if (ssIdx == 4) m_config->ac_screensaver = "pipes";
-    else if (ssIdx == 5) m_config->ac_screensaver = "plasma";
-    else if (ssIdx == 6) m_config->ac_screensaver = "slideshow";
-    else if (ssIdx == 7) m_config->ac_screensaver = "starfield";
-    else if (ssIdx == 8) m_config->ac_screensaver = "none";
+    if (ssIdx >= 0 && ssIdx < (int)m_screensaverIds.count()) {
+        m_config->ac_screensaver = m_screensaverIds[ssIdx];
+    } else {
+        m_config->ac_screensaver = "random";
+    }
 
     m_config->slideshow_image_dir = m_slideshowDirEdit->text();
     m_config->slideshow_random_order = m_slideshowRandomCheck->isChecked();
     m_config->slideshow_zoom_effect = m_slideshowZoomCheck->isChecked();
     m_config->close_popup_animation = m_closeAnimCheck->isChecked();
     m_config->dark_mode = m_darkModeCombo->currentItem();
+    int bstyleIdx = m_batteryStyleCombo->currentItem();
+    if (bstyleIdx == 1) {
+        m_config->battery_icon_style = "win11";
+    } else if (bstyleIdx == 2) {
+        m_config->battery_icon_style = "Alt";
+    } else {
+        m_config->battery_icon_style = "win10";
+    }
     m_config->popup_opacity = m_opacitySlider->value() / 100.0;
     m_config->coloured_icon = m_colouredIconCheck->isChecked();
     m_config->custom_color_full = (m_colorModeFull->currentItem() == 1);
@@ -1058,6 +1151,52 @@ void ConfigDialog::saveConfigValues() {
     m_config->animate_charge_icon = m_animateChargeCheck->isChecked();
     m_config->presentation_mode_icon = m_presModeIconCheck->isChecked();
     m_config->media_mode_icon = m_mediaModeIconCheck->isChecked();
+}
+
+void ConfigDialog::applyThemeToDialog(int mode) {
+    YabatmanConfig dummy;
+    dummy.dark_mode = mode;
+    dummy.tint_popup_r = m_config ? m_config->tint_popup_r : 242;
+    dummy.tint_popup_g = m_config ? m_config->tint_popup_g : 242;
+    dummy.tint_popup_b = m_config ? m_config->tint_popup_b : 242;
+    YabatmanTheme theme = resolveTheme(&dummy);
+
+    applyDialogTheme(this, theme, m_headerFrame, m_headerTitle);
+
+    if (m_headerIcon) {
+        m_headerIcon->setBackgroundMode(TQt::PaletteBackground);
+        m_headerIcon->setPaletteBackgroundColor(theme.headerBg);
+        m_headerIcon->setPixmap(getThemedPixmap(settings_data, settings_size, 32, 32, theme.isDark));
+    }
+    if (m_sidebar) {
+        TQColor bgCol = (theme.mode == YabatmanConfig::THEME_MODE_FOLLOW_TDE) 
+                        ? colorGroup().background() 
+                        : theme.windowBg;
+        TQPalette sidePal = (theme.mode == YabatmanConfig::THEME_MODE_FOLLOW_TDE)
+                            ? tqApp->palette()
+                            : palette();
+        sidePal.setColor(TQPalette::Active, TQColorGroup::Background, bgCol);
+        sidePal.setColor(TQPalette::Inactive, TQColorGroup::Background, bgCol);
+        sidePal.setColor(TQPalette::Disabled, TQColorGroup::Background, bgCol);
+        sidePal.setColor(TQPalette::Active, TQColorGroup::Base, bgCol);
+        sidePal.setColor(TQPalette::Inactive, TQColorGroup::Base, bgCol);
+        sidePal.setColor(TQPalette::Disabled, TQColorGroup::Base, bgCol);
+
+        m_sidebar->setPalette(sidePal);
+        m_sidebar->setPaletteBackgroundColor(bgCol);
+        if (m_sidebar->viewport()) {
+            m_sidebar->viewport()->setPalette(sidePal);
+            m_sidebar->viewport()->setBackgroundMode(TQt::PaletteBackground);
+            m_sidebar->viewport()->setPaletteBackgroundColor(bgCol);
+            m_sidebar->viewport()->update();
+        }
+        m_sidebar->update();
+    }
+    update();
+}
+
+void ConfigDialog::onDarkModeChanged(int index) {
+    applyThemeToDialog(index);
 }
 
 void ConfigDialog::onAccept() {
@@ -1145,6 +1284,20 @@ void ConfigDialog::onAddSSID() {
 void ConfigDialog::onRemoveSSID() {
     int idx = m_ssidsList->currentItem();
     if (idx >= 0) m_ssidsList->removeItem(idx);
+}
+
+void ConfigDialog::onAddSleepInhibitor() {
+    bool ok;
+    TQString val = TQInputDialog::getText("Add Sleep Inhibitor Process", "Enter process name (e.g. blender, ffmpeg, make):",
+                                         TQLineEdit::Normal, TQString::null, &ok, this);
+    if (ok && !val.stripWhiteSpace().isEmpty()) {
+        m_sleepInhibitorsList->insertItem(val.stripWhiteSpace());
+    }
+}
+
+void ConfigDialog::onRemoveSleepInhibitor() {
+    int idx = m_sleepInhibitorsList->currentItem();
+    if (idx >= 0) m_sleepInhibitorsList->removeItem(idx);
 }
 
 void ConfigDialog::onBrowseSlideshowDir() {
@@ -1305,12 +1458,38 @@ void ConfigDialog::onAcIdleChanged(int val) {
 }
 
 void ConfigDialog::onScreensaverChanged(int index) {
-    bool isSlideshow = (index == 6);
+    if (index < 0 || index >= (int)m_screensaverIds.count()) {
+        m_testScreensaverBtn->setEnabled(false);
+        m_screensaverSetupBtn->setEnabled(false);
+        return;
+    }
+    TQString id = m_screensaverIds[index];
+    bool isSlideshow = (id == "slideshow");
     m_slideshowDirEdit->setEnabled(isSlideshow);
     m_slideshowBrowseBtn->setEnabled(isSlideshow);
     m_slideshowRandomCheck->setEnabled(isSlideshow);
     m_slideshowZoomCheck->setEnabled(isSlideshow);
-    m_testScreensaverBtn->setEnabled(index >= 1 && index <= 7);
+    m_testScreensaverBtn->setEnabled(id != "none");
+
+    bool canSetup = false;
+    if (id.startsWith("tde:")) {
+        for (TQValueList<TDEScreensaverInfo>::ConstIterator it = m_tdeScreensavers.begin(); it != m_tdeScreensavers.end(); ++it) {
+            if ((*it).id == id) {
+                canSetup = (*it).hasSetup;
+                break;
+            }
+        }
+    }
+    m_screensaverSetupBtn->setEnabled(canSetup);
+}
+
+void ConfigDialog::onSetupScreensaverClicked() {
+    int idx = m_screensaverCombo->currentItem();
+    if (idx < 0 || idx >= (int)m_screensaverIds.count()) return;
+    TQString id = m_screensaverIds[idx];
+    if (id.startsWith("tde:")) {
+        TDEScreensavers::launchSetup(id);
+    }
 }
 
 void ConfigDialog::onTvEffectComboChanged(int index) {
@@ -1437,15 +1616,9 @@ void ConfigDialog::onTestTransitionTimeout() {
 
 void ConfigDialog::onTestScreensaver() {
     int idx = m_screensaverCombo->currentItem();
-    TQString type;
-    if (idx == 1) type = "clock";
-    else if (idx == 2) type = "analog_clock";
-    else if (idx == 3) type = "matrix";
-    else if (idx == 4) type = "pipes";
-    else if (idx == 5) type = "plasma";
-    else if (idx == 6) type = "slideshow";
-    else if (idx == 7) type = "starfield";
-    else return;
+    if (idx < 0 || idx >= (int)m_screensaverIds.count()) return;
+    TQString type = m_screensaverIds[idx];
+    if (type == "none") return;
 
     if (m_testScreensaverWidget) {
         delete m_testScreensaverWidget;

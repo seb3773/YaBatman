@@ -7,6 +7,8 @@
 #include <tqcheckbox.h>
 #include <tqpushbutton.h>
 #include "battery_logger.h"
+#include "config_manager.h"
+#include "theme_utils.h"
 
 class BatteryHistoryGraph : public TQWidget {
     TQ_OBJECT
@@ -14,6 +16,7 @@ public:
     BatteryHistoryGraph(BatteryLogger *logger, TQWidget *parent = 0);
     ~BatteryHistoryGraph();
 
+    void setTheme(const YabatmanTheme &theme);
     void setParams(int displayCount, bool showScreenEvents, bool showSystemEvents, bool useCurve);
     void updateGraph();
 
@@ -30,6 +33,7 @@ private:
     void drawTooltip(TQPainter& p, int w, int h);
 
     BatteryLogger *m_logger;
+    YabatmanTheme m_theme;
     int m_displayCount;
     bool m_showScreenEvents;
     bool m_showSystemEvents;
@@ -53,7 +57,7 @@ private:
 class BatteryHistoryDialog : public TQDialog {
     TQ_OBJECT
 public:
-    BatteryHistoryDialog(BatteryLogger *logger, TQWidget *parent = 0);
+    BatteryHistoryDialog(BatteryLogger *logger, const YabatmanConfig *config, TQWidget *parent = 0);
     ~BatteryHistoryDialog();
 
 protected:
@@ -69,6 +73,7 @@ private:
     void setupUI();
 
     BatteryLogger *m_logger;
+    const YabatmanConfig *m_config;
     BatteryHistoryGraph *m_graph;
 
     TQComboBox *m_periodCombo;

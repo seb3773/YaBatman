@@ -20,6 +20,7 @@ signals:
 
 protected:
     virtual void paintEvent(TQPaintEvent *e);
+    virtual void showEvent(TQShowEvent *e);
     virtual void keyPressEvent(TQKeyEvent *e);
     virtual void mousePressEvent(TQMouseEvent *e);
     virtual void mouseMoveEvent(TQMouseEvent *e);
@@ -27,6 +28,7 @@ protected:
 
 private slots:
     void updateAnimation();
+    void checkExternalActivity();
 
 private:
     // Initialize screensavers
@@ -122,6 +124,16 @@ private:
     bool m_slideshowZoomEffect;
     bool m_activityEmitted;
     int m_interval;
+
+    // External Trinity (.kss) screensaver management
+    bool m_isExternalTde;
+    TQString m_externalFullPath;
+    pid_t m_childPid;
+    unsigned long m_externalSubWin;
+    unsigned long m_lastIdleRecorded;
+    int m_externalStartupTicks;
+    void startExternalSaver();
+    void stopExternalSaver();
 };
 
 class TransitionOverlay : public TQWidget {

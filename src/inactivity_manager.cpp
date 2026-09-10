@@ -15,6 +15,12 @@
 #include <X11/extensions/scrnsaver.h>
 #include <X11/extensions/dpms.h>
 
+#ifndef PURE_TQT3
+#include <dcopref.h>
+#include <dcopclient.h>
+#include <kdatastream.h>
+#endif
+
 #undef signals
 #include <gio/gio.h>
 #include <glib.h>
@@ -112,12 +118,173 @@ static TQString joinList(const TQStringList &list) {
     return result;
 }
 
+#ifndef PURE_TQT3
+class TDEPowersaveDcopCompat : public DCOPObject {
+public:
+    TDEPowersaveDcopCompat(InactivityManager *mgr, const TQCString &objId)
+        : DCOPObject(objId), m_mgr(mgr) {}
+    virtual ~TDEPowersaveDcopCompat() {}
+
+    virtual bool process(const TQCString &fun, const TQByteArray &data, TQCString &replyType, TQByteArray &replyData) {
+        if (fun == "lockScreen()") {
+            m_mgr->lockScreenNow();
+            replyType = "bool";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            reply << (TQ_INT8)1;
+            return true;
+        } else if (fun == "do_suspendToRAM()") {
+            m_mgr->suspendSystem();
+            replyType = "bool";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            reply << (TQ_INT8)1;
+            return true;
+        } else if (fun == "do_suspendToDisk()") {
+            m_mgr->hibernateSystem();
+            replyType = "bool";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            reply << (TQ_INT8)1;
+            return true;
+        } else if (fun == "do_suspendHybrid()") {
+            m_mgr->hybridSuspendSystem();
+            replyType = "bool";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            reply << (TQ_INT8)1;
+            return true;
+        } else if (fun == "do_standBy()") {
+            m_mgr->suspendSystem();
+            replyType = "bool";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            reply << (TQ_INT8)1;
+            return true;
+        } else if (fun == "do_brightnessDown(int)") {
+            TQDataStream args(data, IO_ReadOnly);
+            TQ_INT32 step;
+            args >> step;
+            if (step <= 0) step = 5;
+            m_mgr->setBrightness(m_mgr->getBrightness() - step);
+            replyType = "bool";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            reply << (TQ_INT8)1;
+            return true;
+        } else if (fun == "do_brightnessDown()") {
+            m_mgr->setBrightness(m_mgr->getBrightness() - 5);
+            replyType = "bool";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            reply << (TQ_INT8)1;
+            return true;
+        } else if (fun == "do_brightnessUp(int)") {
+            TQDataStream args(data, IO_ReadOnly);
+            TQ_INT32 step;
+            args >> step;
+            if (step <= 0) step = 5;
+            m_mgr->setBrightness(m_mgr->getBrightness() + step);
+            replyType = "bool";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            reply << (TQ_INT8)1;
+            return true;
+        } else if (fun == "do_brightnessUp()") {
+            m_mgr->setBrightness(m_mgr->getBrightness() + 5);
+            replyType = "bool";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            reply << (TQ_INT8)1;
+            return true;
+        } else if (fun == "brightnessGet()") {
+            replyType = "int";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            reply << (TQ_INT32)m_mgr->getBrightness();
+            return true;
+        } else if (fun == "brightnessSet(int)") {
+            TQDataStream args(data, IO_ReadOnly);
+            TQ_INT32 b;
+            args >> b;
+            m_mgr->setBrightness(b);
+            replyType = "void";
+            return true;
+        } else if (fun == "do_setScheme(TQString)") {
+            TQDataStream args(data, IO_ReadOnly);
+            TQString scheme;
+            args >> scheme;
+            TQString lower = scheme.lower();
+            if (lower.contains("perf")) m_mgr->setProfile(2);
+            else if (lower.contains("ext")) m_mgr->setProfile(3);
+            else if (lower.contains("save") || lower.contains("eco")) m_mgr->setProfile(0);
+            else m_mgr->setProfile(1);
+            replyType = "bool";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            reply << (TQ_INT8)1;
+            return true;
+        } else if (fun == "currentScheme()") {
+            replyType = "TQString";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            int p = m_mgr->getPowerProfile();
+            TQString s = (p == 2 ? "Performance" : (p == 0 ? "PowerSave" : (p == 3 ? "ExtremePowerSave" : "Balanced")));
+            reply << s;
+            return true;
+        } else if (fun == "disableAutosuspend(bool)") {
+            TQDataStream args(data, IO_ReadOnly);
+            TQ_INT8 disable;
+            args >> disable;
+            m_mgr->setPresentationMode(disable != 0);
+            replyType = "void";
+            return true;
+        } else if (fun == "allowed_sleepingStates()") {
+            replyType = "TQStringList";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            TQStringList states;
+            states << "standby" << "suspend" << "hibernate" << "hybrid";
+            reply << states;
+            return true;
+        } else if (fun == "listSchemes()") {
+            replyType = "TQStringList";
+            TQDataStream reply(replyData, IO_WriteOnly);
+            TQStringList schemes;
+            schemes << "Performance" << "Balanced" << "PowerSave" << "ExtremePowerSave";
+            reply << schemes;
+            return true;
+        }
+        return DCOPObject::process(fun, data, replyType, replyData);
+    }
+
+    virtual QCStringList functions() {
+        QCStringList res = DCOPObject::functions();
+        res.append("bool lockScreen()");
+        res.append("bool do_suspendToRAM()");
+        res.append("bool do_suspendToDisk()");
+        res.append("bool do_suspendHybrid()");
+        res.append("bool do_standBy()");
+        res.append("bool do_brightnessDown(int)");
+        res.append("bool do_brightnessDown()");
+        res.append("bool do_brightnessUp(int)");
+        res.append("bool do_brightnessUp()");
+        res.append("int brightnessGet()");
+        res.append("void brightnessSet(int)");
+        res.append("bool do_setScheme(TQString)");
+        res.append("TQString currentScheme()");
+        res.append("void disableAutosuspend(bool)");
+        res.append("TQStringList allowed_sleepingStates()");
+        res.append("TQStringList listSchemes()");
+        return res;
+    }
+
+private:
+    InactivityManager *m_mgr;
+};
+#endif
+
 InactivityManager::InactivityManager(ConfigManager *configManager, YabatmanConfig *config, BatteryLogger *batteryLogger, TQObject *parent)
+#ifndef PURE_TQT3
+    : TQObject(parent), DCOPObject("YaBatman")
+#else
     : TQObject(parent)
+#endif
 {
     m_configManager = configManager;
     m_config = config;
     m_batteryLogger = batteryLogger;
+#ifndef PURE_TQT3
+    m_tdepowersaveCompat = new TDEPowersaveDcopCompat(this, "tdepowersave");
+    m_tdepowersaveIfaceCompat = new TDEPowersaveDcopCompat(this, "tdepowersaveIface");
+#endif
 
     m_x11Display = tqt_xdisplay();
     m_prevIdleTime = 0;
@@ -154,6 +321,8 @@ InactivityManager::InactivityManager(ConfigManager *configManager, YabatmanConfi
     m_bluetoothInitialState = -1;
     m_wifiInitialState = -1;
     m_powerProfile = -1;
+    m_lastHwProfile = -1;
+    m_lastOpmode = -1;
     m_currentRate = 0.0;
     m_phaseStartTime = time(NULL);
     m_phaseStartCapacity = 100;
@@ -270,6 +439,10 @@ InactivityManager::~InactivityManager() {
     if (m_systemBus) {
         g_object_unref(m_systemBus);
     }
+#ifndef PURE_TQT3
+    delete m_tdepowersaveCompat;
+    delete m_tdepowersaveIfaceCompat;
+#endif
     notify_uninit();
 }
 
@@ -657,6 +830,41 @@ void InactivityManager::refreshBatteryIcon() {
     checkBatteryStatus(true);
 }
 
+bool InactivityManager::hasRunningSleepInhibitors() {
+    if (!m_config || m_config->sleep_inhibitor_processes.isEmpty()) {
+        return false;
+    }
+
+    TQDir procDir("/proc");
+    if (!procDir.exists()) return false;
+
+    TQStringList entries = procDir.entryList(TQDir::Dirs);
+    for (TQStringList::Iterator it = entries.begin(); it != entries.end(); ++it) {
+        const TQString &entry = *it;
+        if (entry.isEmpty() || !entry[0].isDigit()) continue;
+
+        TQFile commFile("/proc/" + entry + "/comm");
+        if (commFile.open(IO_ReadOnly)) {
+            char buf[128];
+            int len = commFile.readLine(buf, sizeof(buf));
+            commFile.close();
+            if (len > 0) {
+                while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r' || buf[len - 1] == ' ')) {
+                    buf[--len] = '\0';
+                }
+                TQString commName = TQString::fromLatin1(buf);
+                for (TQStringList::ConstIterator pit = m_config->sleep_inhibitor_processes.begin();
+                     pit != m_config->sleep_inhibitor_processes.end(); ++pit) {
+                    if (*pit == commName) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
 void InactivityManager::checkIdle() {
     if (m_actionInProgress || m_calibrationActive) return;
 
@@ -715,9 +923,11 @@ void InactivityManager::checkIdle() {
     // Set check frequency interval (applied at end if timer stays active).
     int nextInterval = (m_screenSleeping || m_backlightReduced || m_screensaverActive) ? 200 : 6000;
 
+    bool inhibitorRunning = hasRunningSleepInhibitors();
+
     // 1. Display Sleep / Screensaver Trigger
     if (idle_time_ms >= sleep_timeout_ms && m_prevIdleTime >= sleep_timeout_ms && !m_screenSleeping && !m_screensaverActive) {
-        if (!m_mediaPlaying || m_mediaPlayingType == 1 || !m_presentationMode) {
+        if ((!m_mediaPlaying || m_mediaPlayingType == 1 || !m_presentationMode) && !inhibitorRunning) {
             // Save original brightness if not already dimmed
             if (!m_backlightReduced) {
                 readCurrentBrightness();
@@ -736,6 +946,7 @@ void InactivityManager::checkIdle() {
 
                     // Trigger Screensaver activation event
                     emit triggerScreensaver();
+                    emit dismissPopups();
                 } else {
                     setScreenDpms(false);
                     m_screenSleeping = true;
@@ -815,7 +1026,7 @@ void InactivityManager::checkIdle() {
     }
 
     // 3. System Suspend Timeout
-    if ((!m_presentationMode || m_warnCrit) && idle_time_ms >= system_timeout_ms && m_prevIdleTime >= system_timeout_ms && !m_mediaPlaying) {
+    if ((!m_presentationMode || m_warnCrit) && !inhibitorRunning && idle_time_ms >= system_timeout_ms && m_prevIdleTime >= system_timeout_ms && !m_mediaPlaying) {
         m_prevIdleTime = 0;
         int action = (m_chargingState == 0) ? m_config->bat_energy_saving : m_config->ac_energy_saving;
         switch (action) {
@@ -864,32 +1075,111 @@ void InactivityManager::checkBatteryStatus(bool force) {
     m_lastBatteryCheck = now;
 
     TQString base = "/sys/class/power_supply/";
-    TQString batPath = "";
+    TQValueList<BatteryDevice> foundBatteries;
     TQDir dir(base);
     if (dir.exists()) {
         TQStringList list = dir.entryList(TQDir::Dirs);
         for (TQStringList::Iterator it = list.begin(); it != list.end(); ++it) {
             if (*it == "." || *it == "..") continue;
-            TQString type = readSysfsString(base + *it + "/type");
+            TQString p = base + *it;
+            TQString type = readSysfsString(p + "/type");
             if (type == "Battery") {
-                batPath = base + *it;
-                break;
+                TQString presentStr = readSysfsString(p + "/present");
+                if (!presentStr.isEmpty() && presentStr.stripWhiteSpace() == "0") {
+                    continue; // battery slot is empty
+                }
+                BatteryDevice dev;
+                dev.name = *it;
+                dev.path = p;
+                dev.vendor = readSysfsString(p + "/manufacturer");
+                dev.model = readSysfsString(p + "/model_name");
+                dev.serial = readSysfsString(p + "/serial_number");
+                dev.technology = readSysfsString(p + "/technology");
+                dev.status = readSysfsString(p + "/status");
+                dev.percentage = readSysfsInt(p + "/capacity");
+
+                dev.energyNow = readSysfsInt(p + "/energy_now");
+                dev.energyFull = readSysfsInt(p + "/energy_full");
+                dev.energyDesign = readSysfsInt(p + "/energy_full_design");
+                dev.isEnergy = true;
+
+                if (dev.energyNow == 0 && dev.energyFull == 0) {
+                    dev.energyNow = readSysfsInt(p + "/charge_now");
+                    dev.energyFull = readSysfsInt(p + "/charge_full");
+                    dev.energyDesign = readSysfsInt(p + "/charge_full_design");
+                    dev.isEnergy = false;
+                }
+
+                dev.powerNow = readSysfsInt(p + "/power_now");
+                if (dev.powerNow == 0) {
+                    dev.powerNow = readSysfsInt(p + "/current_now");
+                }
+                dev.voltageNow = readSysfsInt(p + "/voltage_now");
+                dev.voltageMin = readSysfsInt(p + "/voltage_min_design");
+                dev.cycleCount = readSysfsInt(p + "/cycle_count");
+
+                if (dev.status == "Charging") dev.state = 1;
+                else if (dev.status == "Full" || dev.status == "Not charging") dev.state = 2;
+                else dev.state = 0; // Discharging
+
+                foundBatteries.append(dev);
             }
         }
     }
 
-    if (batPath.isEmpty()) {
-        m_batteryPercentage = 100;
-        m_chargingState = 2; // full
+    if (foundBatteries.isEmpty()) {
+        const bool changed = (!m_batteries.isEmpty() || m_batteryPercentage != 0 || m_chargingState != 2);
+        m_batteries.clear();
+        m_batteryPath = "";
+        m_batteryPercentage = 0;
+        m_chargingState = 2; // on AC / full / not discharging
+        m_warnSimple = false;
+        m_warnCrit = false;
+        if (changed) {
+            emit batteryStatusChanged(m_batteryPercentage, m_chargingState);
+        }
         return;
     }
 
-    int percentage = readSysfsInt(batPath + "/capacity");
-    TQString status = readSysfsString(batPath + "/status");
+    m_batteries = foundBatteries;
+    m_batteryPath = m_batteries.first().path;
 
-    int state = 0;
-    if (status == "Charging") state = 1;
-    else if (status == "Full" || status == "Not charging") state = 2;
+    // Calculate aggregated values
+    int state = 2;
+    bool anyCharging = false;
+    bool anyDischarging = false;
+
+    double totalEnergyNow = 0.0;
+    double totalEnergyFull = 0.0;
+    int sumPercentage = 0;
+
+    for (TQValueList<BatteryDevice>::Iterator bit = m_batteries.begin(); bit != m_batteries.end(); ++bit) {
+        if ((*bit).state == 1) anyCharging = true;
+        else if ((*bit).state == 0) anyDischarging = true;
+
+        sumPercentage += (*bit).percentage;
+        if ((*bit).isEnergy) {
+            totalEnergyNow += (*bit).energyNow;
+            totalEnergyFull += (*bit).energyFull;
+        } else {
+            double v = (*bit).voltageNow > 0 ? (*bit).voltageNow : ((*bit).voltageMin > 0 ? (*bit).voltageMin : 11100000.0);
+            totalEnergyNow += ((double)(*bit).energyNow * v) / 1000000.0;
+            totalEnergyFull += ((double)(*bit).energyFull * v) / 1000000.0;
+        }
+    }
+
+    if (anyCharging) state = 1;
+    else if (anyDischarging) state = 0;
+    else state = 2;
+
+    int percentage = 100;
+    if (totalEnergyFull > 0.0) {
+        percentage = (int)((totalEnergyNow * 100.0) / totalEnergyFull + 0.5);
+    } else if (!m_batteries.isEmpty()) {
+        percentage = sumPercentage / m_batteries.count();
+    }
+    if (percentage > 100) percentage = 100;
+    if (percentage < 0) percentage = 0;
 
     const bool changed = (percentage != m_batteryPercentage || state != m_chargingState);
     const int oldState = m_chargingState;
@@ -1352,6 +1642,9 @@ void InactivityManager::lockScreenNow() {
 }
 
 void InactivityManager::setScreenDpms(bool enable) {
+    if (!enable) {
+        emit dismissPopups();
+    }
     Display *dpy = m_x11Display;
     if (!dpy) return;
     int dummy;
@@ -1540,11 +1833,10 @@ void InactivityManager::setRfkillState(const char *target, int state) {
 }
 
 void InactivityManager::setProfile(int profile) {
-    static int last_hw_profile = -1;
-    if (profile == last_hw_profile) {
+    if (profile == m_lastHwProfile) {
         return;
     }
-    last_hw_profile = profile;
+    m_lastHwProfile = profile;
     m_powerProfile = (profile == 3) ? 0 : profile;
     switch (profile) {
         case 0:
@@ -1564,8 +1856,12 @@ void InactivityManager::setProfile(int profile) {
 }
 
 void InactivityManager::adjustProfile() {
+    int current_opmode = (m_chargingState == 1 || m_chargingState == 2) ? 1 : 0;
+    bool opmode_changed = (current_opmode != m_lastOpmode);
+    m_lastOpmode = current_opmode;
+
     // cpu driver opmode
-    if (m_chargingState == 1 || m_chargingState == 2) {
+    if (current_opmode == 1) {
         callDaemon("set_cpu_driver_opmode:1");
         if (m_config->disable_eth == 2) {
             callDaemon("toggle_ethernet:1");
@@ -1575,6 +1871,12 @@ void InactivityManager::adjustProfile() {
         if (m_config->disable_eth == 2) {
             callDaemon("toggle_ethernet:0");
         }
+    }
+
+    // When driver opmode transitions (active <-> passive), re-apply the hardware governor
+    // even if the logical profile index is unchanged (e.g. Balanced on AC -> Balanced on Battery).
+    if (opmode_changed) {
+        m_lastHwProfile = -1;
     }
 
     if (!m_warnCrit && !m_warnSimple) {
@@ -1781,6 +2083,7 @@ void InactivityManager::setupDbusMonitoring() {
 
 void InactivityManager::onPrepareForSleep(bool aboutToSleep) {
     if (aboutToSleep) {
+        emit dismissPopups();
         if (!m_actionInProgress && m_config->intercept_external_sleep_requests) {
             prepareSuspendGeneral(false);
             usleep(100000);
@@ -1794,6 +2097,7 @@ void InactivityManager::onPrepareForSleep(bool aboutToSleep) {
 
 void InactivityManager::onPrepareForShutdown(bool aboutToShutdown) {
     if (aboutToShutdown) {
+        emit dismissPopups();
         if (!m_actionInProgress) {
             m_idleTimer->stop();
             m_batteryTimer->stop();
@@ -1805,9 +2109,18 @@ void InactivityManager::onPrepareForShutdown(bool aboutToShutdown) {
 }
 
 void InactivityManager::prepareSuspendGeneral(bool isHibernateOrPoweroff) {
+    emit dismissPopups();
     m_idleTimer->stop();
     m_batteryTimer->stop();
     sync();
+
+#ifndef PURE_TQT3
+    if (m_config->unmount_external_on_suspend) {
+        DCOPRef dcop_ref("kded", "mediamanager");
+        dcop_ref.call("unmountAllSuspend()");
+        sync();
+    }
+#endif
 
     // Trigger visual transition effect if configured, lid is open, screen is active, and not already playing
     if (m_config->tv_effect_on_suspend_and_shutdown != 0 && readLidState() && !m_screenSleeping && !m_transitionInProgress) {
@@ -1854,6 +2167,13 @@ void InactivityManager::afterWakeActions() {
     m_justWokeUp = true;
     m_wakeTime = time(NULL);
     m_actionInProgress = false;
+
+#ifndef PURE_TQT3
+    if (m_config->unmount_external_on_suspend) {
+        DCOPRef dcop_ref("kded", "mediamanager");
+        dcop_ref.call("remountAllResume()");
+    }
+#endif
 
     // Log wake-up event
     m_batteryLogger->addEvent(EVENT_WAKE_UP, m_batteryPercentage, m_chargingState);
@@ -2146,3 +2466,134 @@ bool InactivityManager::x11EventFilter(XEvent *event) {
     }
     return false;
 }
+
+#ifndef PURE_TQT3
+bool InactivityManager::process(const TQCString &fun, const TQByteArray &data, TQCString &replyType, TQByteArray &replyData) {
+    if (fun == "getBatteryPercentage()") {
+        replyType = "int";
+        TQDataStream reply(replyData, IO_WriteOnly);
+        reply << (TQ_INT32)getBatteryPercentage();
+        return true;
+    } else if (fun == "getChargingState()") {
+        replyType = "int";
+        TQDataStream reply(replyData, IO_WriteOnly);
+        reply << (TQ_INT32)getChargingState();
+        return true;
+    } else if (fun == "getChargingStateString()") {
+        replyType = "TQString";
+        TQDataStream reply(replyData, IO_WriteOnly);
+        TQString st = (m_chargingState == 1 ? "Charging" : (m_chargingState == 2 ? "Full" : "Discharging"));
+        reply << st;
+        return true;
+    } else if (fun == "getPowerProfile()") {
+        replyType = "int";
+        TQDataStream reply(replyData, IO_WriteOnly);
+        reply << (TQ_INT32)getPowerProfile();
+        return true;
+    } else if (fun == "setPowerProfile(int)") {
+        TQDataStream args(data, IO_ReadOnly);
+        TQ_INT32 p;
+        args >> p;
+        setProfile(p);
+        replyType = "void";
+        return true;
+    } else if (fun == "lockScreen()") {
+        lockScreenNow();
+        replyType = "bool";
+        TQDataStream reply(replyData, IO_WriteOnly);
+        reply << (TQ_INT8)1;
+        return true;
+    } else if (fun == "suspend()") {
+        suspendSystem();
+        replyType = "void";
+        return true;
+    } else if (fun == "hibernate()") {
+        hibernateSystem();
+        replyType = "void";
+        return true;
+    } else if (fun == "hybridSuspend()") {
+        hybridSuspendSystem();
+        replyType = "void";
+        return true;
+    } else if (fun == "brightnessUp(int)") {
+        TQDataStream args(data, IO_ReadOnly);
+        TQ_INT32 step;
+        args >> step;
+        if (step <= 0) step = 5;
+        setBrightness(getBrightness() + step);
+        replyType = "void";
+        return true;
+    } else if (fun == "brightnessDown(int)") {
+        TQDataStream args(data, IO_ReadOnly);
+        TQ_INT32 step;
+        args >> step;
+        if (step <= 0) step = 5;
+        setBrightness(getBrightness() - step);
+        replyType = "void";
+        return true;
+    } else if (fun == "getBrightness()") {
+        replyType = "int";
+        TQDataStream reply(replyData, IO_WriteOnly);
+        reply << (TQ_INT32)getBrightness();
+        return true;
+    } else if (fun == "setBrightness(int)") {
+        TQDataStream args(data, IO_ReadOnly);
+        TQ_INT32 b;
+        args >> b;
+        setBrightness(b);
+        replyType = "void";
+        return true;
+    } else if (fun == "setPresentationMode(bool)") {
+        TQDataStream args(data, IO_ReadOnly);
+        TQ_INT8 en;
+        args >> en;
+        setPresentationMode(en != 0);
+        replyType = "void";
+        return true;
+    } else if (fun == "isPresentationMode()") {
+        replyType = "bool";
+        TQDataStream reply(replyData, IO_WriteOnly);
+        reply << (TQ_INT8)(m_presentationMode ? 1 : 0);
+        return true;
+    } else if (fun == "hasBattery()") {
+        replyType = "bool";
+        TQDataStream reply(replyData, IO_WriteOnly);
+        reply << (TQ_INT8)(hasBattery() ? 1 : 0);
+        return true;
+    } else if (fun == "getBatteryCount()") {
+        replyType = "int";
+        TQDataStream reply(replyData, IO_WriteOnly);
+        reply << (TQ_INT32)getBatteryCount();
+        return true;
+    } else if (fun == "hasRunningSleepInhibitors()") {
+        replyType = "bool";
+        TQDataStream reply(replyData, IO_WriteOnly);
+        reply << (TQ_INT8)(hasRunningSleepInhibitors() ? 1 : 0);
+        return true;
+    }
+    return DCOPObject::process(fun, data, replyType, replyData);
+}
+
+QCStringList InactivityManager::functions() {
+    QCStringList res = DCOPObject::functions();
+    res.append("int getBatteryPercentage()");
+    res.append("int getChargingState()");
+    res.append("TQString getChargingStateString()");
+    res.append("int getPowerProfile()");
+    res.append("void setPowerProfile(int)");
+    res.append("bool lockScreen()");
+    res.append("void suspend()");
+    res.append("void hibernate()");
+    res.append("void hybridSuspend()");
+    res.append("void brightnessUp(int)");
+    res.append("void brightnessDown(int)");
+    res.append("int getBrightness()");
+    res.append("void setBrightness(int)");
+    res.append("void setPresentationMode(bool)");
+    res.append("bool isPresentationMode()");
+    res.append("bool hasBattery()");
+    res.append("int getBatteryCount()");
+    res.append("bool hasRunningSleepInhibitors()");
+    return res;
+}
+#endif

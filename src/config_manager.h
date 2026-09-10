@@ -69,6 +69,12 @@ struct YabatmanConfig {
     TQStringList authorized_ssids;
     bool icon_blink_on_critical;
 
+    enum ThemeMode {
+        THEME_MODE_FOLLOW_TDE = 0,
+        THEME_MODE_LIGHT = 1,
+        THEME_MODE_DARK = 2
+    };
+
     // Visual styles
     int tv_effect_on_suspend_and_shutdown;
     TQString ac_screensaver;
@@ -76,7 +82,8 @@ struct YabatmanConfig {
     bool slideshow_random_order;
     bool slideshow_zoom_effect;
     bool close_popup_animation;
-    int dark_mode;
+    int dark_mode; // ThemeMode: 0 = Follow TDE, 1 = Light, 2 = Dark
+    TQString battery_icon_style;
     double popup_opacity;
     bool presentation_mode_icon;
     bool media_mode_icon;
@@ -112,6 +119,8 @@ struct YabatmanConfig {
     int eco_freq_cap;             // 20-80 %
     bool balanced_usb_autosuspend;
     bool ultra_performance_mode;
+    bool unmount_external_on_suspend;
+    TQStringList sleep_inhibitor_processes;
 };
 
 class ConfigManager {

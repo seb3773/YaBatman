@@ -1,4 +1,5 @@
 #include "screensavers.h"
+#include "tde_screensaver_helper.h"
 #include "tqtaapainter.h"
 #include <tqpainter.h>
 #include <tqapplication.h>
@@ -8,6 +9,37 @@
 #include <tqcursor.h>
 #include <math.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/prctl.h>
+#include <X11/Xlib.h>
+#include <X11/extensions/scrnsaver.h>
+#ifdef KeyPress
+#undef KeyPress
+#endif
+#ifdef KeyRelease
+#undef KeyRelease
+#endif
+#ifdef FocusIn
+#undef FocusIn
+#endif
+#ifdef FocusOut
+#undef FocusOut
+#endif
+#ifdef FontChange
+#undef FontChange
+#endif
+#ifdef None
+#undef None
+#endif
+#ifdef Status
+#undef Status
+#endif
+#ifdef CursorShape
+#undef CursorShape
+#endif
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -20,13 +52,37 @@ ScreensaverWidget::ScreensaverWidget(const TQString& type, const TQString& slide
     : TQWidget(parent, "ScreensaverWidget", WStyle_Customize | WStyle_NoBorder | WStyle_StaysOnTop)
 {
     m_matrixYArray = NULL;
+    m_timer = NULL;
+    m_isExternalTde = false;
+    m_childPid = -1;
 
     m_type = type;
     if (m_type == "random") {
-        const char *options[] = { "clock", "analog_clock", "matrix", "pipes", "plasma", "slideshow", "starfield" };
+        TQValueList<TQString> pool;
+        pool.append("clock");
+        pool.append("analog_clock");
+        pool.append("matrix");
+        pool.append("pipes");
+        pool.append("plasma");
+        pool.append("slideshow");
+        pool.append("starfield");
+
+        // Also add installed Trinity screensavers into the random pool
+        TQValueList<TDEScreensaverInfo> tdeList = TDEScreensavers::getAvailableScreensavers();
+        for (TQValueList<TDEScreensaverInfo>::Iterator tit = tdeList.begin(); tit != tdeList.end(); ++tit) {
+            pool.append((*tit).id);
+        }
+
         srand(time(NULL));
-        m_type = options[rand() % 7];
+        int rIdx = rand() % pool.count();
+        m_type = pool[rIdx];
     }
+
+    if (m_type.startsWith("tde:")) {
+        m_isExternalTde = true;
+        m_externalFullPath = TDEScreensavers::findBinaryPath(m_type.mid(4));
+    }
+
     m_slideshowDir = slideshowDir;
     m_slideshowRandomOrder = randomOrder;
     m_slideshowZoomEffect = zoomEffect;
@@ -51,60 +107,202 @@ ScreensaverWidget::ScreensaverWidget(const TQString& type, const TQString& slide
     setMouseTracking(true);
 
     tqApp->installEventFilter(this);
-    grabKeyboard();
-    grabMouse();
 
-    // Initialize state depending on type
-    if (m_type == "clock") initClock();
-    else if (m_type == "analog_clock") initAnalogClock();
-    else if (m_type == "matrix") initMatrix();
-    else if (m_type == "pipes") initPipes();
-    else if (m_type == "plasma") initPlasma();
-    else if (m_type == "slideshow") initSlideshow();
-    else if (m_type == "starfield") initStarfield();
-    else initStarfield(); // Default fallback
+    m_externalSubWin = 0;
+    m_lastIdleRecorded = 0;
+    m_externalStartupTicks = 0;
 
-    m_timer = new TQTimer(this);
-    connect(m_timer, TQT_SIGNAL(timeout()), this, TQT_SLOT(updateAnimation()));
-    
-    // Set appropriate frame rates:
-    // Clock: 60ms timer
-    // Analog Clock: 16ms timer (60 FPS for sweep second hand)
-    // Matrix: 30ms timer
-    // Pipes: 30ms timer
-    // Plasma: 30ms timer
-    // Slideshow: 30ms timer
-    // Starfield: 16ms timer (60 FPS)
-    int interval = 33;
-    if (m_type == "clock") interval = 60;
-    else if (m_type == "analog_clock") interval = 16;
-    else if (m_type == "matrix") interval = 30;
-    else if (m_type == "pipes") interval = 30;
-    else if (m_type == "plasma") interval = 30;
-    else if (m_type == "slideshow") interval = 30;
-    else if (m_type == "starfield") interval = 16;
-    m_interval = interval;
-    m_timer->start(interval);
+    if (m_isExternalTde) {
+        m_timer = new TQTimer(this);
+        connect(m_timer, TQT_SIGNAL(timeout()), this, TQT_SLOT(checkExternalActivity()));
+        m_interval = 25; // 25ms watchdog polling for external screensaver input & process health
+        m_timer->start(25);
+    } else {
+        // Initialize state depending on type
+        if (m_type == "clock") initClock();
+        else if (m_type == "analog_clock") initAnalogClock();
+        else if (m_type == "matrix") initMatrix();
+        else if (m_type == "pipes") initPipes();
+        else if (m_type == "plasma") initPlasma();
+        else if (m_type == "slideshow") initSlideshow();
+        else if (m_type == "starfield") initStarfield();
+        else initStarfield(); // Default fallback
+
+        m_timer = new TQTimer(this);
+        connect(m_timer, TQT_SIGNAL(timeout()), this, TQT_SLOT(updateAnimation()));
+
+        int interval = 33;
+        if (m_type == "clock") interval = 60;
+        else if (m_type == "analog_clock") interval = 16;
+        else if (m_type == "matrix") interval = 30;
+        else if (m_type == "pipes") interval = 30;
+        else if (m_type == "plasma") interval = 30;
+        else if (m_type == "slideshow") interval = 30;
+        else if (m_type == "starfield") interval = 16;
+        m_interval = interval;
+        m_timer->start(interval);
+    }
 }
 
 ScreensaverWidget::~ScreensaverWidget() {
+    stopExternalSaver();
     tqApp->removeEventFilter(this);
     releaseKeyboard();
     releaseMouse();
-    delete m_timer;
+    if (m_timer) {
+        delete m_timer;
+        m_timer = NULL;
+    }
     if (m_matrixYArray) {
         free(m_matrixYArray);
+        m_matrixYArray = NULL;
     }
     freeSlideImages();
 }
 
+void ScreensaverWidget::showEvent(TQShowEvent *e) {
+    TQWidget::showEvent(e);
+    if (m_isExternalTde && m_childPid <= 0) {
+        startExternalSaver();
+    }
+}
+
+void ScreensaverWidget::startExternalSaver() {
+    if (m_externalFullPath.isEmpty() || m_childPid > 0) return;
+
+    Display *dpy = tqt_xdisplay();
+    int w = width() > 0 ? width() : tqApp->desktop()->width();
+    int h = height() > 0 ? height() : tqApp->desktop()->height();
+
+    // Create a dedicated child X11 window inside this widget for the screensaver to draw into
+    Window childWin = XCreateSimpleWindow(dpy, winId(), 0, 0, w, h, 0, 0, 0);
+    XMapWindow(dpy, childWin);
+    XSync(dpy, False);
+    m_externalSubWin = (unsigned long)childWin;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        m_isExternalTde = false;
+        initPlasma();
+        if (m_timer) {
+            m_timer->stop();
+            disconnect(m_timer, TQT_SIGNAL(timeout()), this, TQT_SLOT(checkExternalActivity()));
+            connect(m_timer, TQT_SIGNAL(timeout()), this, TQT_SLOT(updateAnimation()));
+            m_interval = 30;
+            m_timer->start(30);
+        }
+        return;
+    }
+    if (pid == 0) {
+        #ifdef PR_SET_PDEATHSIG
+        prctl(PR_SET_PDEATHSIG, SIGTERM);
+        #endif
+
+        char widStr[32];
+        snprintf(widStr, sizeof(widStr), "%lu", (unsigned long)childWin);
+
+        execl(m_externalFullPath.latin1(), m_externalFullPath.latin1(), "-window-id", widStr, NULL);
+        _exit(1);
+    }
+    m_childPid = pid;
+}
+
+void ScreensaverWidget::stopExternalSaver() {
+    if (m_childPid > 0) {
+        pid_t pid = m_childPid;
+        m_childPid = -1;
+        kill(pid, SIGTERM);
+        usleep(30000);
+        int status = 0;
+        pid_t r = waitpid(pid, &status, WNOHANG);
+        if (r == 0) {
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+        }
+    }
+    if (m_externalSubWin != 0) {
+        XDestroyWindow(tqt_xdisplay(), (Window)m_externalSubWin);
+        m_externalSubWin = 0;
+        XSync(tqt_xdisplay(), False);
+    }
+}
+
+void ScreensaverWidget::checkExternalActivity() {
+    if (m_activityEmitted) return;
+
+    Display *dpy = tqt_xdisplay();
+    Window root = DefaultRootWindow(dpy);
+
+    // 1. Check if child screensaver process terminated/died
+    if (m_childPid > 0) {
+        int status = 0;
+        pid_t r = waitpid(m_childPid, &status, WNOHANG);
+        if (r != 0) {
+            // Child process exited or was killed
+            m_childPid = -1;
+            triggerActivity();
+            return;
+        }
+    }
+
+    // 2. Hardware Mouse Check via XQueryPointer (real coordinates on root screen)
+    Window root_ret, child_ret;
+    int root_x = 0, root_y = 0, win_x = 0, win_y = 0;
+    unsigned int mask = 0;
+    if (XQueryPointer(dpy, root, &root_ret, &child_ret, &root_x, &root_y, &win_x, &win_y, &mask)) {
+        if (m_firstMouseMove) {
+            m_lastMouseX = root_x;
+            m_lastMouseY = root_y;
+            m_firstMouseMove = false;
+        } else {
+            if (abs(root_x - m_lastMouseX) > 3 || abs(root_y - m_lastMouseY) > 3) {
+                triggerActivity();
+                return;
+            }
+        }
+        // Check mouse buttons
+        if (mask & (Button1Mask | Button2Mask | Button3Mask | Button4Mask | Button5Mask)) {
+            triggerActivity();
+            return;
+        }
+    }
+
+    // 3. Hardware Keyboard Check via XQueryKeymap (instant physical key down detection)
+    char keys[32];
+    XQueryKeymap(dpy, keys);
+    for (int i = 0; i < 32; ++i) {
+        if (keys[i] != 0) {
+            triggerActivity();
+            return;
+        }
+    }
+
+    // 4. X11 Input Idle Time via XScreenSaverQueryInfo
+    XScreenSaverInfo xss;
+    if (XScreenSaverQueryInfo(dpy, root, &xss)) {
+        m_externalStartupTicks++;
+        if (m_externalStartupTicks > 4) { // ~100ms startup grace period
+            // If user touched ANY input, xss.idle resets to 0 (or drops significantly)
+            if (xss.idle < 100 || (m_lastIdleRecorded > 0 && xss.idle < m_lastIdleRecorded && (m_lastIdleRecorded - xss.idle) > 100)) {
+                triggerActivity();
+                return;
+            }
+        }
+        m_lastIdleRecorded = xss.idle;
+    }
+}
+
 void ScreensaverWidget::setBlackout(bool enable) {
     m_blackout = enable;
+    if (m_isExternalTde) {
+        update();
+        return;
+    }
     if (m_blackout) {
-        m_timer->stop();
+        if (m_timer) m_timer->stop();
         update(); // Paint solid black immediately
     } else {
-        m_timer->start(m_interval);
+        if (m_timer) m_timer->start(m_interval);
         update();
     }
 }

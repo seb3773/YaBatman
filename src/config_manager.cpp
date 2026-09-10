@@ -59,7 +59,11 @@ public:
         return readEntry(key, defaultVal);
     }
 
-    TQStringList readListEntry(const TQString &key, const TQStringList &defaultVal) {
+    bool hasKey(const TQString &key) const {
+        return m_data.contains(m_currentGroup) && m_data[m_currentGroup].contains(key);
+    }
+
+    TQStringList readListEntry(const TQString &key, const TQStringList &defaultVal = TQStringList()) {
         if (m_data.contains(m_currentGroup) && m_data[m_currentGroup].contains(key)) {
             TQString str = m_data[m_currentGroup][key];
             if (str.isEmpty()) return TQStringList();
@@ -225,6 +229,7 @@ void ConfigManager::loadDefaults(YabatmanConfig& config) {
     config.slideshow_zoom_effect = true;
     config.close_popup_animation = true;
     config.dark_mode = 0;
+    config.battery_icon_style = "win10";
     config.popup_opacity = 1.0;
     config.presentation_mode_icon = true;
     config.media_mode_icon = true;
@@ -266,6 +271,9 @@ void ConfigManager::loadDefaults(YabatmanConfig& config) {
     config.eco_freq_cap = 40;
     config.balanced_usb_autosuspend = true;
     config.ultra_performance_mode = false;
+    config.unmount_external_on_suspend = false;
+    config.sleep_inhibitor_processes = TQStringList();
+    config.sleep_inhibitor_processes << "blender" << "k3b" << "make" << "ninja" << "ffmpeg" << "rsync" << "handbrake";
 }
 
 void ConfigManager::load(YabatmanConfig& config) {
@@ -351,6 +359,7 @@ void ConfigManager::load(YabatmanConfig& config) {
     config.slideshow_zoom_effect = tdeConfig.readBoolEntry("SlideshowZoomEffect", config.slideshow_zoom_effect);
     config.close_popup_animation = tdeConfig.readBoolEntry("ClosePopupAnimation", config.close_popup_animation);
     config.dark_mode = tdeConfig.readNumEntry("DarkMode", config.dark_mode);
+    config.battery_icon_style = tdeConfig.readEntry("BatteryIconStyle", "win10");
     config.popup_opacity = tdeConfig.readDoubleNumEntry("PopupOpacity", config.popup_opacity);
     config.presentation_mode_icon = tdeConfig.readBoolEntry("PresentationModeIcon", config.presentation_mode_icon);
     config.media_mode_icon = tdeConfig.readBoolEntry("MediaModeIcon", config.media_mode_icon);
@@ -389,6 +398,10 @@ void ConfigManager::load(YabatmanConfig& config) {
     config.eco_freq_cap = tdeConfig.readNumEntry("EcoFreqCap", config.eco_freq_cap);
     config.balanced_usb_autosuspend = tdeConfig.readBoolEntry("BalancedUsbAutosuspend", config.balanced_usb_autosuspend);
     config.ultra_performance_mode = tdeConfig.readBoolEntry("UltraPerformanceMode", config.ultra_performance_mode);
+    config.unmount_external_on_suspend = tdeConfig.readBoolEntry("UnmountExternalOnSuspend", config.unmount_external_on_suspend);
+    if (tdeConfig.hasKey("SleepInhibitorProcesses")) {
+        config.sleep_inhibitor_processes = tdeConfig.readListEntry("SleepInhibitorProcesses");
+    }
     config.last_calibration = tdeConfig.readEntry("LastCalibration", config.last_calibration);
 }
 
@@ -473,6 +486,7 @@ void ConfigManager::save(const YabatmanConfig& config) {
     tdeConfig.writeEntry("SlideshowZoomEffect", config.slideshow_zoom_effect);
     tdeConfig.writeEntry("ClosePopupAnimation", config.close_popup_animation);
     tdeConfig.writeEntry("DarkMode", config.dark_mode);
+    tdeConfig.writeEntry("BatteryIconStyle", config.battery_icon_style);
     tdeConfig.writeEntry("PopupOpacity", config.popup_opacity);
     tdeConfig.writeEntry("PresentationModeIcon", config.presentation_mode_icon);
     tdeConfig.writeEntry("MediaModeIcon", config.media_mode_icon);
@@ -511,6 +525,8 @@ void ConfigManager::save(const YabatmanConfig& config) {
     tdeConfig.writeEntry("EcoFreqCap", config.eco_freq_cap);
     tdeConfig.writeEntry("BalancedUsbAutosuspend", config.balanced_usb_autosuspend);
     tdeConfig.writeEntry("UltraPerformanceMode", config.ultra_performance_mode);
+    tdeConfig.writeEntry("UnmountExternalOnSuspend", config.unmount_external_on_suspend);
+    tdeConfig.writeEntry("SleepInhibitorProcesses", config.sleep_inhibitor_processes);
     tdeConfig.writeEntry("LastCalibration", config.last_calibration);
 
     tdeConfig.sync();

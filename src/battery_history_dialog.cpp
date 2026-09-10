@@ -42,6 +42,7 @@ BatteryHistoryGraph::BatteryHistoryGraph(BatteryLogger *logger, TQWidget *parent
     : TQWidget(parent)
 {
     m_logger = logger;
+    m_theme = resolveTheme(NULL);
     m_displayCount = 48;
     m_showScreenEvents = false;
     m_showSystemEvents = false;
@@ -64,6 +65,11 @@ BatteryHistoryGraph::BatteryHistoryGraph(BatteryLogger *logger, TQWidget *parent
 }
 
 BatteryHistoryGraph::~BatteryHistoryGraph() {}
+
+void BatteryHistoryGraph::setTheme(const YabatmanTheme &theme) {
+    m_theme = theme;
+    update();
+}
 
 void BatteryHistoryGraph::setParams(int displayCount, bool showScreenEvents, bool showSystemEvents, bool useCurve) {
     m_displayCount = displayCount;
@@ -418,7 +424,7 @@ void BatteryHistoryGraph::paintEvent(TQPaintEvent *e) {
 }
 
 void BatteryHistoryGraph::drawGrid(TQPainter& p, int w, int h, double marginLeft, double marginRight, double marginTop, double graphHeight) {
-    p.setPen(TQPen(TQColor(180, 180, 180), 1, TQPen::DotLine));
+    p.setPen(TQPen(m_theme.gridColor, 1, TQPen::DotLine));
     for (int i = 0; i <= 100; i += 20) {
         double y = marginTop + graphHeight - (i / 100.0) * graphHeight;
         p.drawLine((int)marginLeft, (int)y, (int)(w - marginRight), (int)y);
@@ -429,7 +435,7 @@ void BatteryHistoryGraph::drawGrid(TQPainter& p, int w, int h, double marginLeft
         p.setPen(palette().color(TQPalette::Active, TQColorGroup::Text));
         p.setFont(TQFont("Sans", 9, TQFont::Bold));
         p.drawText((int)(marginLeft - 40), (int)(y - 7), 35, 15, AlignRight, lbl);
-        p.setPen(TQPen(TQColor(180, 180, 180), 1, TQPen::DotLine));
+        p.setPen(TQPen(m_theme.gridColor, 1, TQPen::DotLine));
     }
 }
 
@@ -530,13 +536,10 @@ void BatteryHistoryGraph::drawEvents(TQPainter& p, int w, int h, double marginLe
 
         // Draw text label or icon
         if (isChargerEvent) {
-            TQImage img;
             const unsigned char* iconData = (e->event_type == EVENT_CHARGER_CONNECTED) ? charge_data : uncharge_data;
             size_t iconSize = (e->event_type == EVENT_CHARGER_CONNECTED) ? charge_size : uncharge_size;
-            if (img.loadFromData(iconData, iconSize, "PNG")) {
-                TQImage scaled = img.smoothScale(16, 16);
-                TQPixmap pm;
-                pm.convertFromImage(scaled);
+            TQPixmap pm = getThemedPixmap(iconData, iconSize, 16, 16, m_theme.isDark);
+            if (!pm.isNull()) {
                 p.drawPixmap((int)(x_pos - 8), (int)(line_start_y - 18), pm);
             }
         } else {
@@ -638,10 +641,11 @@ void BatteryHistoryGraph::drawTooltip(TQPainter& p, int w, int h) {
 // BatteryHistoryDialog Implementation
 // ==========================================
 
-BatteryHistoryDialog::BatteryHistoryDialog(BatteryLogger *logger, TQWidget *parent)
+BatteryHistoryDialog::BatteryHistoryDialog(BatteryLogger *logger, const YabatmanConfig *config, TQWidget *parent)
     : TQDialog(parent, "BatteryHistoryDialog", true)
 {
     m_logger = logger;
+    m_config = config;
     m_displayCount = 48;
     m_showSystemEvents = false;
     m_showScreenEvents = false;
@@ -674,19 +678,14 @@ void BatteryHistoryDialog::keyPressEvent(TQKeyEvent *e) {
 void BatteryHistoryDialog::setupUI() {
     TQVBoxLayout *mainLayout = new TQVBoxLayout(this, 0, 0);
 
+    YabatmanTheme theme = resolveTheme(m_config);
+
     // Title Block
     TQFrame *headerFrame = new TQFrame(this);
-    headerFrame->setPaletteBackgroundColor(TQColor(215, 215, 215)); // Darker gray background
-    
     TQHBoxLayout *titleLayout = new TQHBoxLayout(headerFrame, 10, 10);
     
     TQLabel *iconLabel = new TQLabel(headerFrame);
-    TQImage img;
-    if (img.loadFromData(history_data, history_size, "PNG")) {
-        TQPixmap pm;
-        pm.convertFromImage(img);
-        iconLabel->setPixmap(pm);
-    }
+    iconLabel->setPixmap(getThemedPixmap(history_data, history_size, 32, 32, theme.isDark));
     titleLayout->addWidget(iconLabel, 0, AlignVCenter);
 
     TQLabel *titleText = new TQLabel("Battery usage", headerFrame);
@@ -698,6 +697,8 @@ void BatteryHistoryDialog::setupUI() {
     titleLayout->addStretch();
     
     mainLayout->addWidget(headerFrame);
+
+    applyDialogTheme(this, theme, headerFrame, titleText);
 
     TQVBoxLayout *contentLayout = new TQVBoxLayout(mainLayout, 10);
     contentLayout->setMargin(15);
@@ -731,6 +732,7 @@ void BatteryHistoryDialog::setupUI() {
 
     // Graph Area
     m_graph = new BatteryHistoryGraph(m_logger, this);
+    m_graph->setTheme(theme);
     m_graph->setParams(m_displayCount, m_showScreenEvents, m_showSystemEvents, m_useCurve);
     contentLayout->addWidget(m_graph, 1); // Expandable widget
 

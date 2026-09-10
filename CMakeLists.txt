@@ -137,9 +137,11 @@ set(GUI_SOURCES
     src/config_dialog.cpp
     src/calibration_manager.cpp
     src/screensavers.cpp
+    src/tde_screensaver_helper.cpp
     src/inactivity_manager.cpp
     src/mpris_detection.c
     src/tqtaapainter.cpp
+    src/theme_utils.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/main.moc
 )
 
@@ -204,6 +206,7 @@ else()
         ${XTST_LIB}
         ${NOTIFY_LIBRARIES}
 
+        DCOP
         tdecore
         tdeui
         pthread
@@ -213,6 +216,7 @@ endif()
 # 3. Compile test_screensaver
 add_executable(test_screensaver
     src/test_screensaver.cpp
+    src/tde_screensaver_helper.cpp
     src/screensavers.cpp
     src/tqtaapainter.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/moc_screensavers.cpp

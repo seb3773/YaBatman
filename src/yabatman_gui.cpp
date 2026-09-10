@@ -1,4 +1,5 @@
 #include "yabatman_gui.h"
+#include "theme_utils.h"
 #include "battery_icons.h"
 #include "battery_info_dialog.h"
 #include "battery_history_dialog.h"
@@ -18,6 +19,7 @@
 #include <tqtextstream.h>
 #include <tqcursor.h>
 #include <tqapplication.h>
+#include <tqmap.h>
 #ifndef PURE_TQT3
 #include <tdeglobalsettings.h>
 #endif
@@ -67,6 +69,7 @@ static TQImage loadEmbeddedPng(const unsigned char *data, size_t size) {
 // Popup helpers (original Gtk3 look)
 // ==========================================
 static const TQColor kPopupHoverColor(0x3D, 0xAE, 0xE9);
+static const TQColor kPopupNormalBg(242, 242, 242);
 
 static int choosePopupIconSize(int srcW, int srcH, int preferredPx) {
     int src = srcW < srcH ? srcW : srcH;
@@ -128,7 +131,7 @@ static void setWidgetTransparent(TQWidget *w) {
     w->setBackgroundMode(TQt::NoBackground);
 }
 
-static const int kPopupWidth = 268;
+static const int kPopupWidth = 300;
 static const int kPopupInnerWidth = kPopupWidth - 10;
 static const int kPopupRowMargin = 4;
 static const int kProfSliderBottomSpacing = 22;
@@ -164,24 +167,55 @@ static TQPixmap greyedPopupIcon(const TQPixmap &icon) {
     return TQPixmap(img);
 }
 
-static void paintCheckMark(TQPainter &p, const TQRect &rect, bool enabled) {
-    static TQPixmap checkPm;
-    if (checkPm.isNull()) {
-        checkPm = popupIconPixmap(check_data, check_size, kPopupMarkSize);
+static TQPixmap colorizedPopupIcon(const TQPixmap &icon, const TQColor &color) {
+    if (icon.isNull()) {
+        return icon;
     }
+    TQImage img = icon.convertToImage();
+    if (img.isNull()) {
+        return icon;
+    }
+    if (img.depth() != 32) {
+        img = img.convertDepth(32);
+    }
+    img.setAlphaBuffer(true);
+    const int r = color.red();
+    const int g = color.green();
+    const int b = color.blue();
+    for (int y = 0; y < img.height(); ++y) {
+        for (int x = 0; x < img.width(); ++x) {
+            TQRgb px = img.pixel(x, y);
+            const int alpha = tqAlpha(px);
+            if (alpha == 0) {
+                continue;
+            }
+            img.setPixel(x, y, tqRgba(r, g, b, alpha));
+        }
+    }
+    return TQPixmap(img);
+}
+
+static TQPixmap getThemedPopupIcon(const unsigned char *data, size_t size, int sz, bool inverted) {
+    return getThemedPixmap(data, size, sz, sz, inverted);
+}
+
+static void paintCheckMark(TQPainter &p, const TQRect &rect, bool enabled, bool inverted = false) {
+    TQPixmap baseMark = getThemedPopupIcon(check_data, check_size, kPopupMarkSize, inverted);
     const int x = rect.width() - kPopupRowMargin - kPopupMarkSize;
     const int y = (rect.height() - kPopupMarkSize) / 2;
     if (enabled) {
-        p.drawPixmap(x, y, checkPm);
+        p.drawPixmap(x, y, baseMark);
     } else {
-        p.drawPixmap(x, y, greyedPopupIcon(checkPm));
+        p.drawPixmap(x, y, greyedPopupIcon(baseMark));
     }
 }
 
 static void paintPopupRowContent(TQPainter &p, const TQRect &rect, const TQPixmap &icon,
                                   const TQString &text, const TQColor &normalBg,
+                                  const TQColor &hoverBg, const TQColor &textColor,
+                                  const TQColor &disabledTextColor,
                                   bool hovered, bool enabled, int rightReserve, bool bold = false) {
-    const TQColor fill = (hovered && enabled) ? kPopupHoverColor : normalBg;
+    const TQColor fill = (hovered && enabled) ? hoverBg : normalBg;
     p.fillRect(rect, fill);
 
     int x = kPopupRowMargin;
@@ -194,8 +228,8 @@ static void paintPopupRowContent(TQPainter &p, const TQRect &rect, const TQPixma
         x += kPopupIconSlotW + kPopupRowSpacing;
     }
 
-    const TQColor textColor = enabled ? TQColor(0, 0, 0) : TQColor(120, 120, 120);
-    p.setPen(textColor);
+    const TQColor penColor = enabled ? textColor : disabledTextColor;
+    p.setPen(penColor);
 
 #ifdef PURE_TQT3
     TQFont font = TQApplication::font();
@@ -219,18 +253,28 @@ class PopupRow : public TQWidget {
 public:
     PopupRow(TQWidget *parent) : TQWidget(parent) {}
     virtual void clearHoverState() = 0;
+    virtual void applyTheme(const YabatmanTheme &theme) = 0;
 };
 
 class PopupMenuRow : public PopupRow {
 public:
     typedef void (YabatmanPopup::*ActionSlot)();
-    PopupMenuRow(const TQPixmap &icon, const TQString &text, const TQColor &bg,
+    PopupMenuRow(const unsigned char *iconData, size_t iconSize, const TQString &text,
                  YabatmanPopup *popup, ActionSlot slot, TQWidget *parent)
-        : PopupRow(parent), m_icon(icon), m_text(text), m_bg(bg),
-          m_hovered(false), m_popup(popup), m_slot(slot)
+        : PopupRow(parent), m_iconData(iconData), m_iconSize(iconSize), m_text(text),
+          m_hovered(false), m_isDark(false), m_popup(popup), m_slot(slot)
     {
         setFixedHeight(kPopupRowHeight);
         setBackgroundMode(TQt::NoBackground);
+    }
+
+    virtual void applyTheme(const YabatmanTheme &theme) {
+        m_isDark = theme.isDark;
+        m_bg = theme.windowBg;
+        m_hoverBg = theme.hoverBg;
+        m_textColor = theme.textColor;
+        m_disabledColor = theme.disabledText;
+        update();
     }
 
 protected:
@@ -248,8 +292,9 @@ protected:
     }
     void paintEvent(TQPaintEvent *) {
         TQPainter p(this);
-        paintPopupRowContent(p, rect(), m_icon, m_text, m_bg,
-                             m_hovered, isEnabled(), kPopupRowMargin);
+        TQPixmap drawIcon = getThemedPopupIcon(m_iconData, m_iconSize, 24, m_isDark);
+        paintPopupRowContent(p, rect(), drawIcon, m_text, m_bg, m_hoverBg,
+                             m_textColor, m_disabledColor, m_hovered, isEnabled(), kPopupRowMargin);
     }
     void mousePressEvent(TQMouseEvent *) {
         if (m_popup && m_slot) {
@@ -265,10 +310,15 @@ public:
     }
 
 private:
-    TQPixmap m_icon;
+    const unsigned char *m_iconData;
+    size_t m_iconSize;
     TQString m_text;
     TQColor m_bg;
+    TQColor m_hoverBg;
+    TQColor m_textColor;
+    TQColor m_disabledColor;
     bool m_hovered;
+    bool m_isDark;
     YabatmanPopup *m_popup;
     ActionSlot m_slot;
 };
@@ -277,13 +327,22 @@ class PopupCheckRow : public PopupRow {
 public:
     typedef void (YabatmanPopup::*ToggleSlot)(bool);
 
-    PopupCheckRow(const TQPixmap &icon, const TQString &text, const TQColor &bg, bool checked,
-                  YabatmanPopup *popup, ToggleSlot slot, TQWidget *parent)
-        : PopupRow(parent), m_icon(icon), m_text(text), m_bg(bg), m_checked(checked),
-          m_hovered(false), m_popup(popup), m_slot(slot)
+    PopupCheckRow(const unsigned char *iconData, size_t iconSize, const TQString &text,
+                  bool checked, YabatmanPopup *popup, ToggleSlot slot, TQWidget *parent)
+        : PopupRow(parent), m_iconData(iconData), m_iconSize(iconSize), m_text(text),
+          m_checked(checked), m_hovered(false), m_isDark(false), m_popup(popup), m_slot(slot)
     {
         setFixedHeight(kPopupRowHeight);
         setBackgroundMode(TQt::NoBackground);
+    }
+
+    virtual void applyTheme(const YabatmanTheme &theme) {
+        m_isDark = theme.isDark;
+        m_bg = theme.windowBg;
+        m_hoverBg = theme.hoverBg;
+        m_textColor = theme.textColor;
+        m_disabledColor = theme.disabledText;
+        update();
     }
 
     void setChecked(bool checked) {
@@ -320,11 +379,12 @@ protected:
     }
     void paintEvent(TQPaintEvent *) {
         TQPainter p(this);
+        TQPixmap drawIcon = getThemedPopupIcon(m_iconData, m_iconSize, 24, m_isDark);
         const int rightReserve = kPopupRowMargin + kPopupMarkSize + kPopupRowSpacing;
-        paintPopupRowContent(p, rect(), m_icon, m_text, m_bg,
-                             m_hovered, isEnabled(), rightReserve, m_checked);
+        paintPopupRowContent(p, rect(), drawIcon, m_text, m_bg, m_hoverBg,
+                             m_textColor, m_disabledColor, m_hovered, isEnabled(), rightReserve, m_checked);
         if (m_checked) {
-            paintCheckMark(p, rect(), isEnabled());
+            paintCheckMark(p, rect(), isEnabled(), m_isDark);
         }
     }
     void mousePressEvent(TQMouseEvent *) {
@@ -346,32 +406,38 @@ public:
     }
 
 private:
-    TQPixmap m_icon;
+    const unsigned char *m_iconData;
+    size_t m_iconSize;
     TQString m_text;
     TQColor m_bg;
+    TQColor m_hoverBg;
+    TQColor m_textColor;
+    TQColor m_disabledColor;
     bool m_checked;
     bool m_hovered;
+    bool m_isDark;
     YabatmanPopup *m_popup;
     ToggleSlot m_slot;
 };
 
 class PopupStatusRow : public TQWidget {
 public:
-    PopupStatusRow(const TQColor &bg, TQWidget *parent)
-        : TQWidget(parent), m_bg(bg)
+    PopupStatusRow(const TQColor &bg, const TQColor &textColor, TQWidget *parent)
+        : TQWidget(parent), m_bg(bg), m_textColor(textColor)
     {
         setFixedHeight(kPopupRowHeight);
         setBackgroundMode(TQt::NoBackground);
     }
 
-    void setContent(const TQPixmap &icon, const TQString &text) {
-        m_icon = icon;
-        m_text = text;
+    void setColors(const TQColor &bg, const TQColor &textColor) {
+        m_bg = bg;
+        m_textColor = textColor;
         update();
     }
 
-    void setBackgroundColor(const TQColor &bg) {
-        m_bg = bg;
+    void setContent(const TQPixmap &icon, const TQString &text) {
+        m_icon = icon;
+        m_text = text;
         update();
     }
 
@@ -387,7 +453,7 @@ protected:
             x += m_icon.width() + kPopupRowSpacing;
         }
 
-        p.setPen(TQColor(0, 0, 0));
+        p.setPen(m_textColor);
         p.setFont(TQFont("Sans", 10, TQFont::Bold));
         const TQFontMetrics fm = p.fontMetrics();
         const int textY = (height() + fm.ascent() - fm.descent()) / 2;
@@ -399,6 +465,7 @@ protected:
 
 private:
     TQColor m_bg;
+    TQColor m_textColor;
     TQPixmap m_icon;
     TQString m_text;
 };
@@ -421,6 +488,9 @@ static void readLiveBatteryState(const TQString &batPath, int &pct, int &chg) {
 }
 
 static TQString buildBatteryStatusText(int pct, int chg, const TQString &batPath) {
+    if (batPath.isEmpty()) {
+        return "No battery present";
+    }
     TQString status;
     if (pct == 100 && (chg == 1 || chg == 2)) {
         status = "100%, Full";
@@ -551,22 +621,33 @@ YabatmanPopup::YabatmanPopup(InactivityManager *inactivity, CalibrationManager *
     m_calibration = calibration;
     m_config = config;
 
-    m_closeTimer = new TQTimer(this);
-    m_outsideTicks = 0;
-    connect(m_closeTimer, TQT_SIGNAL(timeout()), this, TQT_SLOT(onCloseTimerTimeout()));
+    connect(m_inactivity, TQT_SIGNAL(dismissPopups()),
+            this, TQT_SLOT(hide()));
 
     setFocusPolicy(StrongFocus);
 
     m_opacity = m_config->popup_opacity;
-    m_bgColor = TQColor(m_config->tint_popup_r, m_config->tint_popup_g, m_config->tint_popup_b);
+    YabatmanTheme initialTheme = resolveTheme(m_config);
+    m_bgColor = initialTheme.windowBg;
     setPaletteBackgroundColor(m_bgColor);
     setBackgroundMode(TQt::PaletteBackground);
+
+    TQPalette pal = palette();
+    pal.setColor(TQPalette::Active, TQColorGroup::Background, initialTheme.windowBg);
+    pal.setColor(TQPalette::Active, TQColorGroup::Foreground, initialTheme.textColor);
+    pal.setColor(TQPalette::Active, TQColorGroup::Text, initialTheme.textColor);
+    pal.setColor(TQPalette::Active, TQColorGroup::Dark, initialTheme.separatorColor);
+    pal.setColor(TQPalette::Inactive, TQColorGroup::Background, initialTheme.windowBg);
+    pal.setColor(TQPalette::Inactive, TQColorGroup::Foreground, initialTheme.textColor);
+    pal.setColor(TQPalette::Inactive, TQColorGroup::Text, initialTheme.textColor);
+    pal.setColor(TQPalette::Inactive, TQColorGroup::Dark, initialTheme.separatorColor);
+    setPalette(pal);
 
     TQVBoxLayout *layout = new TQVBoxLayout(this, 5, 0);
     layout->setMargin(5);
 
     // 1. Battery status row (opaque painted row, like menu entries)
-    m_statusRow = new PopupStatusRow(m_bgColor, this);
+    m_statusRow = new PopupStatusRow(initialTheme.windowBg, initialTheme.textColor, this);
     m_statusRow->setMinimumWidth(kPopupInnerWidth);
     layout->addWidget(m_statusRow);
     connect(m_inactivity, TQT_SIGNAL(batteryStatusChanged(int, int)),
@@ -581,16 +662,14 @@ YabatmanPopup::YabatmanPopup(InactivityManager *inactivity, CalibrationManager *
 
     // 2. Power profile slider with eco/perf icons
     TQHBoxLayout *profRow = new TQHBoxLayout(layout, 5);
-    TQLabel *ecoLbl = new TQLabel(this);
-    setIconLabelPixmap(ecoLbl, popupIconPixmap(eco_data, eco_size, 24));
-    profRow->addWidget(ecoLbl);
+    m_ecoLbl = new TQLabel(this);
+    profRow->addWidget(m_ecoLbl);
     m_profSlider = new TQSlider(0, 2, 1, 1, TQt::Horizontal, this);
     m_profSlider->setMinimumWidth(kPopupInnerWidth - 60);
     connect(m_profSlider, TQT_SIGNAL(valueChanged(int)), this, TQT_SLOT(onProfileChanged(int)));
     profRow->addWidget(m_profSlider, 1);
-    TQLabel *perfLbl = new TQLabel(this);
-    setIconLabelPixmap(perfLbl, popupIconPixmap(perf_data, perf_size, 24));
-    profRow->addWidget(perfLbl);
+    m_perfLbl = new TQLabel(this);
+    profRow->addWidget(m_perfLbl);
 
     layout->addSpacing(kProfSliderBottomSpacing);
 
@@ -601,8 +680,8 @@ YabatmanPopup::YabatmanPopup(InactivityManager *inactivity, CalibrationManager *
     blBlockLayout->setMargin(0);
     TQHBoxLayout *blRow = new TQHBoxLayout(blBlockLayout, 5);
     TQLabel *sunLbl = new TQLabel(m_backlightBlock);
-    setIconLabelPixmap(sunLbl, popupIconPixmap(backlight_data, backlight_size, 24));
-    blRow->addWidget(sunLbl);
+    m_sunLbl = sunLbl;
+    blRow->addWidget(m_sunLbl);
     m_blSlider = new ClickJumpSlider(1, 100, 1, 100, TQt::Horizontal, m_backlightBlock);
     m_blSlider->setMinimumWidth(kPopupInnerWidth - 36);
     m_blSlider->setValue(inactivity->getBrightness());
@@ -613,8 +692,8 @@ YabatmanPopup::YabatmanPopup(InactivityManager *inactivity, CalibrationManager *
     updateBacklightBlockVisibility();
 
     // 4. Presentation mode row
-    m_presRow = new PopupCheckRow(popupIconPixmap(presmode_data, presmode_size, 24),
-                                  "Presentation mode", m_bgColor,
+    m_presRow = new PopupCheckRow(presmode_data, presmode_size,
+                                  "Presentation mode",
                                   inactivity->isPresentationMode(),
                                   this, &YabatmanPopup::onPresentationToggled, this);
     m_presRow->setMinimumWidth(kPopupInnerWidth);
@@ -624,25 +703,28 @@ YabatmanPopup::YabatmanPopup(InactivityManager *inactivity, CalibrationManager *
     m_presRow->setEnabled(!inactivity->isMediaPlaying());
 
     // 5. Powernap row
-    m_powernapRow = new PopupCheckRow(popupIconPixmap(powernap_data, powernap_size, 24),
-                                      "Powernap", m_bgColor, inactivity->isPowernapSelected(),
+    m_powernapRow = new PopupCheckRow(powernap_data, powernap_size,
+                                      "Powernap", inactivity->isPowernapSelected(),
                                       this, &YabatmanPopup::onPowernapToggled, this);
     m_powernapRow->setMinimumWidth(kPopupInnerWidth);
     layout->addWidget(m_powernapRow);
     m_powernapRow->setEnabled(inactivity->getChargingState() != 0);
     TQToolTip::add(m_powernapRow, "Powernap is available when the charger is connected.");
+    if (!m_config->ac_lid_enable_powernap) {
+        m_powernapRow->hide();
+    }
 
     // 6. Menu rows (original + extra items)
-    PopupMenuRow *infoRow = new PopupMenuRow(popupIconPixmap(info_data, info_size, 24), "Battery infos",
-                                       m_bgColor, this, &YabatmanPopup::openInfo, this);
+    PopupMenuRow *infoRow = new PopupMenuRow(info_data, info_size, "Battery infos",
+                                             this, &YabatmanPopup::openInfo, this);
     infoRow->setMinimumWidth(kPopupInnerWidth);
     layout->addWidget(infoRow);
-    PopupMenuRow *histRow = new PopupMenuRow(popupIconPixmap(history_data, history_size, 24), "History",
-                                       m_bgColor, this, &YabatmanPopup::openHistory, this);
+    PopupMenuRow *histRow = new PopupMenuRow(history_data, history_size, "History",
+                                             this, &YabatmanPopup::openHistory, this);
     histRow->setMinimumWidth(kPopupInnerWidth);
     layout->addWidget(histRow);
-    PopupMenuRow *cfgRow = new PopupMenuRow(popupIconPixmap(settings_data, settings_size, 24), "Settings...",
-                                       m_bgColor, this, &YabatmanPopup::openConfig, this);
+    PopupMenuRow *cfgRow = new PopupMenuRow(settings_data, settings_size, "Settings...",
+                                            this, &YabatmanPopup::openConfig, this);
     cfgRow->setMinimumWidth(kPopupInnerWidth);
     layout->addWidget(cfgRow);
     m_menuRows.append(m_presRow);
@@ -651,6 +733,7 @@ YabatmanPopup::YabatmanPopup(InactivityManager *inactivity, CalibrationManager *
     m_menuRows.append(histRow);
     m_menuRows.append(cfgRow);
 
+    updatePopupIcons();
     applyPopupGeometry();
     refreshPopupBatteryStatus(m_inactivity->getBatteryPercentage(),
                               m_inactivity->getChargingState());
@@ -674,6 +757,24 @@ void YabatmanPopup::applyPopupGeometry() {
 }
 
 void YabatmanPopup::showNear(int x, int y) {
+    YabatmanTheme theme = resolveTheme(m_config);
+    if (theme.windowBg != m_bgColor) {
+        m_bgColor = theme.windowBg;
+        setPaletteBackgroundColor(m_bgColor);
+        TQPalette pal = palette();
+        pal.setColor(TQPalette::Active, TQColorGroup::Background, theme.windowBg);
+        pal.setColor(TQPalette::Active, TQColorGroup::Foreground, theme.textColor);
+        pal.setColor(TQPalette::Active, TQColorGroup::Text, theme.textColor);
+        pal.setColor(TQPalette::Active, TQColorGroup::Dark, theme.separatorColor);
+        pal.setColor(TQPalette::Inactive, TQColorGroup::Background, theme.windowBg);
+        pal.setColor(TQPalette::Inactive, TQColorGroup::Foreground, theme.textColor);
+        pal.setColor(TQPalette::Inactive, TQColorGroup::Text, theme.textColor);
+        pal.setColor(TQPalette::Inactive, TQColorGroup::Dark, theme.separatorColor);
+        setPalette(pal);
+    }
+    refreshPopupBatteryStatus(m_inactivity->getBatteryPercentage(),
+                              m_inactivity->getChargingState());
+    updatePopupIcons();
     applyPopupGeometry();
     // Position popup cleanly relative to cursor click
     int px = x - width() / 2;
@@ -692,14 +793,11 @@ void YabatmanPopup::showNear(int x, int y) {
 
 void YabatmanPopup::showEvent(TQShowEvent *e) {
     TQWidget::showEvent(e);
-    m_outsideTicks = 0;
 
     // Reset hover states of all row widgets to avoid persistent highlights
     for (TQValueList<PopupRow*>::Iterator it = m_menuRows.begin(); it != m_menuRows.end(); ++it) {
         (*it)->clearHoverState();
     }
-
-    m_closeTimer->start(500);
 
 #if defined(Q_WS_X11)
     Display *dpy = tqt_xdisplay();
@@ -739,6 +837,30 @@ void YabatmanPopup::refreshPopupBatteryStatus(int pct, int chg) {
         return;
     }
 
+    if (!m_inactivity->hasBattery()) {
+        static TQPixmap cachedNoBat;
+        if (cachedNoBat.isNull()) {
+            cachedNoBat = scalePopupStatusIcon(superimposePngFromMem(nobat_data, nobat_size,
+                                                                    yabatman_bat_data, yabatman_bat_size));
+        }
+        m_statusRow->setContent(cachedNoBat, "No battery present");
+
+        if (m_powernapRow) {
+            if (!m_config->ac_lid_enable_powernap) {
+                m_powernapRow->hide();
+                if (m_inactivity->isPowernapSelected()) {
+                    m_powernapRow->setChecked(false);
+                    m_inactivity->setPowernapSelected(false);
+                }
+            } else {
+                m_powernapRow->show();
+                m_powernapRow->setEnabled(true);
+                m_powernapRow->setChecked(m_inactivity->isPowernapSelected());
+            }
+        }
+        return;
+    }
+
     const TQString batPath = m_inactivity->getBatteryPath();
     readLiveBatteryState(batPath, pct, chg);
 
@@ -749,19 +871,27 @@ void YabatmanPopup::refreshPopupBatteryStatus(int pct, int chg) {
                             buildBatteryStatusText(pct, chg, batPath));
 
     if (m_powernapRow) {
-        const bool onAc = (chg != 0);
-        m_powernapRow->setEnabled(onAc);
-        if (!onAc) {
-            m_powernapRow->setChecked(false);
-            m_inactivity->setPowernapSelected(false);
+        if (!m_config->ac_lid_enable_powernap) {
+            m_powernapRow->hide();
+            if (m_inactivity->isPowernapSelected()) {
+                m_powernapRow->setChecked(false);
+                m_inactivity->setPowernapSelected(false);
+            }
         } else {
-            m_powernapRow->setChecked(m_inactivity->isPowernapSelected());
+            m_powernapRow->show();
+            const bool onAc = (chg != 0);
+            m_powernapRow->setEnabled(onAc);
+            if (!onAc) {
+                m_powernapRow->setChecked(false);
+                m_inactivity->setPowernapSelected(false);
+            } else {
+                m_powernapRow->setChecked(m_inactivity->isPowernapSelected());
+            }
         }
     }
 }
 
 void YabatmanPopup::hideEvent(TQHideEvent *e) {
-    m_closeTimer->stop();
     TQWidget::hideEvent(e);
     emit popupHidden();
 }
@@ -781,23 +911,7 @@ void YabatmanPopup::focusOutEvent(TQFocusEvent *e) {
         }
         fw = fw->parentWidget();
     }
-    m_closeTimer->stop();
     hide();
-}
-
-void YabatmanPopup::onCloseTimerTimeout() {
-    TQPoint localPos = mapFromGlobal(TQCursor::pos());
-    bool inside = rect().contains(localPos);
-
-    if (!inside) {
-        m_outsideTicks++;
-        if (m_outsideTicks >= 6) {
-            m_closeTimer->stop();
-            hide();
-        }
-    } else {
-        m_outsideTicks = 0;
-    }
 }
 
 void YabatmanPopup::paintEvent(TQPaintEvent *e) {
@@ -814,6 +928,7 @@ void YabatmanPopup::onBacklightChanged(int val) {
 
 void YabatmanPopup::onProfileChanged(int val) {
     m_inactivity->setProfile(val);
+    updatePerfIcon();
 }
 
 void YabatmanPopup::onBrightnessChanged(int percent) {
@@ -832,6 +947,7 @@ void YabatmanPopup::onPowerProfileChanged(int profile) {
         m_profSlider->setValue(val);
         m_profSlider->blockSignals(false);
     }
+    updatePerfIcon();
 }
 
 void YabatmanPopup::onPresentationToggled(bool checked) {
@@ -874,7 +990,7 @@ void YabatmanPopup::openInfo() {
 
 void YabatmanPopup::openHistory() {
     close();
-    BatteryHistoryDialog *dlg = new BatteryHistoryDialog(m_inactivity->getBatteryLogger(), NULL);
+    BatteryHistoryDialog *dlg = new BatteryHistoryDialog(m_inactivity->getBatteryLogger(), m_config, NULL);
     dlg->exec();
     delete dlg;
 }
@@ -896,16 +1012,90 @@ void YabatmanPopup::updateBacklightBlockVisibility() {
     applyPopupGeometry();
 }
 
-void YabatmanPopup::applyConfigSettings() {
-    m_opacity = m_config->popup_opacity;
-    m_bgColor = TQColor(m_config->tint_popup_r, m_config->tint_popup_g, m_config->tint_popup_b);
-    setPaletteBackgroundColor(m_bgColor);
+void YabatmanPopup::updatePopupIcons() {
+    YabatmanTheme theme = resolveTheme(m_config);
 
     if (m_statusRow) {
-        m_statusRow->setBackgroundColor(m_bgColor);
+        m_statusRow->setColors(theme.windowBg, theme.textColor);
+    }
+    for (TQValueList<PopupRow*>::Iterator it = m_menuRows.begin(); it != m_menuRows.end(); ++it) {
+        (*it)->applyTheme(theme);
     }
 
+    if (m_ecoLbl) {
+        setIconLabelPixmap(m_ecoLbl, getThemedPopupIcon(eco_data, eco_size, 24, theme.isDark));
+    }
+
+    if (m_sunLbl) {
+        setIconLabelPixmap(m_sunLbl, getThemedPopupIcon(backlight_data, backlight_size, 24, theme.isDark));
+    }
+
+    updatePerfIcon();
+}
+
+void YabatmanPopup::updatePerfIcon() {
+    if (!m_perfLbl) return;
+
+    YabatmanTheme theme = resolveTheme(m_config);
+    const bool ultra = (m_config && m_config->ultra_performance_mode);
+    const int prof = m_profSlider ? m_profSlider->value() : -1;
+
+    if (ultra) {
+        TQColor redCol(235, 45, 45);
+        if (m_config && (m_config->tint_icon_critical_r > 0 || m_config->tint_icon_critical_g > 0 || m_config->tint_icon_critical_b > 0)) {
+            redCol = TQColor(m_config->tint_icon_critical_r,
+                             m_config->tint_icon_critical_g,
+                             m_config->tint_icon_critical_b);
+        }
+        TQPixmap normalPerf = getThemedPopupIcon(perf_data, perf_size, 24, false);
+        setIconLabelPixmap(m_perfLbl, colorizedPopupIcon(normalPerf, redCol));
+        TQToolTip::remove(m_perfLbl);
+        if (prof == 2) {
+            TQToolTip::add(m_perfLbl, "Ultra Performance mode (active)");
+        } else {
+            TQToolTip::add(m_perfLbl, "Ultra Performance mode");
+        }
+    } else {
+        setIconLabelPixmap(m_perfLbl, getThemedPopupIcon(perf_data, perf_size, 24, theme.isDark));
+        TQToolTip::remove(m_perfLbl);
+        if (prof == 2) {
+            TQToolTip::add(m_perfLbl, "Performance profile (active)");
+        } else {
+            TQToolTip::add(m_perfLbl, "Performance profile");
+        }
+    }
+
+    if (m_ecoLbl) {
+        TQToolTip::remove(m_ecoLbl);
+        if (prof == 0) {
+            TQToolTip::add(m_ecoLbl, "Power Saver profile (active)");
+        } else {
+            TQToolTip::add(m_ecoLbl, "Power Saver profile");
+        }
+    }
+}
+
+void YabatmanPopup::applyConfigSettings() {
+    m_opacity = m_config->popup_opacity;
+    YabatmanTheme theme = resolveTheme(m_config);
+    m_bgColor = theme.windowBg;
+    setPaletteBackgroundColor(m_bgColor);
+
+    TQPalette pal = palette();
+    pal.setColor(TQPalette::Active, TQColorGroup::Background, theme.windowBg);
+    pal.setColor(TQPalette::Active, TQColorGroup::Foreground, theme.textColor);
+    pal.setColor(TQPalette::Active, TQColorGroup::Text, theme.textColor);
+    pal.setColor(TQPalette::Active, TQColorGroup::Dark, theme.separatorColor);
+    pal.setColor(TQPalette::Inactive, TQColorGroup::Background, theme.windowBg);
+    pal.setColor(TQPalette::Inactive, TQColorGroup::Foreground, theme.textColor);
+    pal.setColor(TQPalette::Inactive, TQColorGroup::Text, theme.textColor);
+    pal.setColor(TQPalette::Inactive, TQColorGroup::Dark, theme.separatorColor);
+    setPalette(pal);
+
+    updatePopupIcons();
     updateBacklightBlockVisibility();
+    refreshPopupBatteryStatus(m_inactivity->getBatteryPercentage(),
+                              m_inactivity->getChargingState());
     m_inactivity->updateTimeouts();
     applyPopupGeometry();
     emit configApplied();
@@ -957,6 +1147,7 @@ YabatmanTrayIcon::YabatmanTrayIcon(InactivityManager *inactivity, CalibrationMan
     connect(inactivity, TQT_SIGNAL(batteryStatusChanged(int, int)), this, TQT_SLOT(updateIcon()));
     connect(inactivity, TQT_SIGNAL(presentationModeChanged(bool)), this, TQT_SLOT(updateIcon()));
     connect(inactivity, TQT_SIGNAL(mediaPlayingChanged(bool)), this, TQT_SLOT(updateIcon()));
+    connect(inactivity, TQT_SIGNAL(dismissPopups()), this, TQT_SLOT(closePopup()));
     updateIcon();
 }
 
@@ -995,6 +1186,13 @@ void YabatmanTrayIcon::onPopupHidden() {
     m_popupOpen = false;
 }
 
+void YabatmanTrayIcon::closePopup() {
+    if (m_popup && m_popup->isVisible()) {
+        m_popup->hide();
+    }
+    m_popupOpen = false;
+}
+
 void YabatmanTrayIcon::onBlinkTimeout() {
     m_blinkState = !m_blinkState;
     if (m_blinkState) {
@@ -1005,6 +1203,11 @@ void YabatmanTrayIcon::onBlinkTimeout() {
 }
 
 void YabatmanTrayIcon::onChargeAnimTimeout() {
+    if (!m_inactivity->hasBattery()) {
+        m_chargeAnimTimer->stop();
+        updateIcon();
+        return;
+    }
     int percentage = m_inactivity->getBatteryPercentage();
     int charging = m_inactivity->getChargingState();
 
@@ -1031,44 +1234,115 @@ void YabatmanTrayIcon::onChargeAnimTimeout() {
     updateIcon();
 }
 
-static void getBatteryIconData(int percentage, int charging, const unsigned char* &data, size_t &size) {
+static void getBatteryIconData(int percentage, int charging, const unsigned char* &data, size_t &size, const TQString &style = "win10") {
     int level = percentage / 10;
     if (level < 0) level = 0;
     if (level > 10) level = 10;
 
+    const bool isWin11 = (style == "win11");
+    const bool isAlt = (style == "alt" || style == "Alt");
+
     if (charging == 2 || (charging == 1 && level == 10)) {
-        data = battery_level_100_charged_symbolic_data;
-        size = battery_level_100_charged_symbolic_size;
+        if (isAlt) {
+            data = battery_level_100_charged_symbolic_alt_data;
+            size = battery_level_100_charged_symbolic_alt_size;
+        } else if (isWin11) {
+            data = battery_level_100_charged_symbolic_w11_data;
+            size = battery_level_100_charged_symbolic_w11_size;
+        } else {
+            data = battery_level_100_charged_symbolic_data;
+            size = battery_level_100_charged_symbolic_size;
+        }
         return;
     }
 
     if (charging == 1) {
-        switch (level) {
-            case 0: data = battery_level_0_charging_symbolic_data; size = battery_level_0_charging_symbolic_size; break;
-            case 1: data = battery_level_10_charging_symbolic_data; size = battery_level_10_charging_symbolic_size; break;
-            case 2: data = battery_level_20_charging_symbolic_data; size = battery_level_20_charging_symbolic_size; break;
-            case 3: data = battery_level_30_charging_symbolic_data; size = battery_level_30_charging_symbolic_size; break;
-            case 4: data = battery_level_40_charging_symbolic_data; size = battery_level_40_charging_symbolic_size; break;
-            case 5: data = battery_level_50_charging_symbolic_data; size = battery_level_50_charging_symbolic_size; break;
-            case 6: data = battery_level_60_charging_symbolic_data; size = battery_level_60_charging_symbolic_size; break;
-            case 7: data = battery_level_70_charging_symbolic_data; size = battery_level_70_charging_symbolic_size; break;
-            case 8: data = battery_level_80_charging_symbolic_data; size = battery_level_80_charging_symbolic_size; break;
-            case 9: data = battery_level_90_charging_symbolic_data; size = battery_level_90_charging_symbolic_size; break;
-            default: data = battery_level_100_charged_symbolic_data; size = battery_level_100_charged_symbolic_size; break;
+        if (isAlt) {
+            switch (level) {
+                case 0: data = battery_level_0_charging_symbolic_alt_data; size = battery_level_0_charging_symbolic_alt_size; break;
+                case 1: data = battery_level_10_charging_symbolic_alt_data; size = battery_level_10_charging_symbolic_alt_size; break;
+                case 2: data = battery_level_20_charging_symbolic_alt_data; size = battery_level_20_charging_symbolic_alt_size; break;
+                case 3: data = battery_level_30_charging_symbolic_alt_data; size = battery_level_30_charging_symbolic_alt_size; break;
+                case 4: data = battery_level_40_charging_symbolic_alt_data; size = battery_level_40_charging_symbolic_alt_size; break;
+                case 5: data = battery_level_50_charging_symbolic_alt_data; size = battery_level_50_charging_symbolic_alt_size; break;
+                case 6: data = battery_level_60_charging_symbolic_alt_data; size = battery_level_60_charging_symbolic_alt_size; break;
+                case 7: data = battery_level_70_charging_symbolic_alt_data; size = battery_level_70_charging_symbolic_alt_size; break;
+                case 8: data = battery_level_80_charging_symbolic_alt_data; size = battery_level_80_charging_symbolic_alt_size; break;
+                case 9: data = battery_level_90_charging_symbolic_alt_data; size = battery_level_90_charging_symbolic_alt_size; break;
+                default: data = battery_level_100_charged_symbolic_alt_data; size = battery_level_100_charged_symbolic_alt_size; break;
+            }
+        } else if (isWin11) {
+            switch (level) {
+                case 0: data = battery_level_0_charging_symbolic_w11_data; size = battery_level_0_charging_symbolic_w11_size; break;
+                case 1: data = battery_level_10_charging_symbolic_w11_data; size = battery_level_10_charging_symbolic_w11_size; break;
+                case 2: data = battery_level_20_charging_symbolic_w11_data; size = battery_level_20_charging_symbolic_w11_size; break;
+                case 3: data = battery_level_30_charging_symbolic_w11_data; size = battery_level_30_charging_symbolic_w11_size; break;
+                case 4: data = battery_level_40_charging_symbolic_w11_data; size = battery_level_40_charging_symbolic_w11_size; break;
+                case 5: data = battery_level_50_charging_symbolic_w11_data; size = battery_level_50_charging_symbolic_w11_size; break;
+                case 6: data = battery_level_60_charging_symbolic_w11_data; size = battery_level_60_charging_symbolic_w11_size; break;
+                case 7: data = battery_level_70_charging_symbolic_w11_data; size = battery_level_70_charging_symbolic_w11_size; break;
+                case 8: data = battery_level_80_charging_symbolic_w11_data; size = battery_level_80_charging_symbolic_w11_size; break;
+                case 9: data = battery_level_90_charging_symbolic_w11_data; size = battery_level_90_charging_symbolic_w11_size; break;
+                default: data = battery_level_100_charged_symbolic_w11_data; size = battery_level_100_charged_symbolic_w11_size; break;
+            }
+        } else {
+            switch (level) {
+                case 0: data = battery_level_0_charging_symbolic_data; size = battery_level_0_charging_symbolic_size; break;
+                case 1: data = battery_level_10_charging_symbolic_data; size = battery_level_10_charging_symbolic_size; break;
+                case 2: data = battery_level_20_charging_symbolic_data; size = battery_level_20_charging_symbolic_size; break;
+                case 3: data = battery_level_30_charging_symbolic_data; size = battery_level_30_charging_symbolic_size; break;
+                case 4: data = battery_level_40_charging_symbolic_data; size = battery_level_40_charging_symbolic_size; break;
+                case 5: data = battery_level_50_charging_symbolic_data; size = battery_level_50_charging_symbolic_size; break;
+                case 6: data = battery_level_60_charging_symbolic_data; size = battery_level_60_charging_symbolic_size; break;
+                case 7: data = battery_level_70_charging_symbolic_data; size = battery_level_70_charging_symbolic_size; break;
+                case 8: data = battery_level_80_charging_symbolic_data; size = battery_level_80_charging_symbolic_size; break;
+                case 9: data = battery_level_90_charging_symbolic_data; size = battery_level_90_charging_symbolic_size; break;
+                default: data = battery_level_100_charged_symbolic_data; size = battery_level_100_charged_symbolic_size; break;
+            }
         }
     } else {
-        switch (level) {
-            case 0: data = battery_level_0_symbolic_data; size = battery_level_0_symbolic_size; break;
-            case 1: data = battery_level_10_symbolic_data; size = battery_level_10_symbolic_size; break;
-            case 2: data = battery_level_20_symbolic_data; size = battery_level_20_symbolic_size; break;
-            case 3: data = battery_level_30_symbolic_data; size = battery_level_30_symbolic_size; break;
-            case 4: data = battery_level_40_symbolic_data; size = battery_level_40_symbolic_size; break;
-            case 5: data = battery_level_50_symbolic_data; size = battery_level_50_symbolic_size; break;
-            case 6: data = battery_level_60_symbolic_data; size = battery_level_60_symbolic_size; break;
-            case 7: data = battery_level_70_symbolic_data; size = battery_level_70_symbolic_size; break;
-            case 8: data = battery_level_80_symbolic_data; size = battery_level_80_symbolic_size; break;
-            case 9: data = battery_level_90_symbolic_data; size = battery_level_90_symbolic_size; break;
-            default: data = battery_level_100_symbolic_data; size = battery_level_100_symbolic_size; break;
+        if (isAlt) {
+            switch (level) {
+                case 0: data = battery_level_0_symbolic_alt_data; size = battery_level_0_symbolic_alt_size; break;
+                case 1: data = battery_level_10_symbolic_alt_data; size = battery_level_10_symbolic_alt_size; break;
+                case 2: data = battery_level_20_symbolic_alt_data; size = battery_level_20_symbolic_alt_size; break;
+                case 3: data = battery_level_30_symbolic_alt_data; size = battery_level_30_symbolic_alt_size; break;
+                case 4: data = battery_level_40_symbolic_alt_data; size = battery_level_40_symbolic_alt_size; break;
+                case 5: data = battery_level_50_symbolic_alt_data; size = battery_level_50_symbolic_alt_size; break;
+                case 6: data = battery_level_60_symbolic_alt_data; size = battery_level_60_symbolic_alt_size; break;
+                case 7: data = battery_level_70_symbolic_alt_data; size = battery_level_70_symbolic_alt_size; break;
+                case 8: data = battery_level_80_symbolic_alt_data; size = battery_level_80_symbolic_alt_size; break;
+                case 9: data = battery_level_90_symbolic_alt_data; size = battery_level_90_symbolic_alt_size; break;
+                default: data = battery_level_100_symbolic_alt_data; size = battery_level_100_symbolic_alt_size; break;
+            }
+        } else if (isWin11) {
+            switch (level) {
+                case 0: data = battery_level_0_symbolic_w11_data; size = battery_level_0_symbolic_w11_size; break;
+                case 1: data = battery_level_10_symbolic_w11_data; size = battery_level_10_symbolic_w11_size; break;
+                case 2: data = battery_level_20_symbolic_w11_data; size = battery_level_20_symbolic_w11_size; break;
+                case 3: data = battery_level_30_symbolic_w11_data; size = battery_level_30_symbolic_w11_size; break;
+                case 4: data = battery_level_40_symbolic_w11_data; size = battery_level_40_symbolic_w11_size; break;
+                case 5: data = battery_level_50_symbolic_w11_data; size = battery_level_50_symbolic_w11_size; break;
+                case 6: data = battery_level_60_symbolic_w11_data; size = battery_level_60_symbolic_w11_size; break;
+                case 7: data = battery_level_70_symbolic_w11_data; size = battery_level_70_symbolic_w11_size; break;
+                case 8: data = battery_level_80_symbolic_w11_data; size = battery_level_80_symbolic_w11_size; break;
+                case 9: data = battery_level_90_symbolic_w11_data; size = battery_level_90_symbolic_w11_size; break;
+                default: data = battery_level_100_symbolic_w11_data; size = battery_level_100_symbolic_w11_size; break;
+            }
+        } else {
+            switch (level) {
+                case 0: data = battery_level_0_symbolic_data; size = battery_level_0_symbolic_size; break;
+                case 1: data = battery_level_10_symbolic_data; size = battery_level_10_symbolic_size; break;
+                case 2: data = battery_level_20_symbolic_data; size = battery_level_20_symbolic_size; break;
+                case 3: data = battery_level_30_symbolic_data; size = battery_level_30_symbolic_size; break;
+                case 4: data = battery_level_40_symbolic_data; size = battery_level_40_symbolic_size; break;
+                case 5: data = battery_level_50_symbolic_data; size = battery_level_50_symbolic_size; break;
+                case 6: data = battery_level_60_symbolic_data; size = battery_level_60_symbolic_size; break;
+                case 7: data = battery_level_70_symbolic_data; size = battery_level_70_symbolic_size; break;
+                case 8: data = battery_level_80_symbolic_data; size = battery_level_80_symbolic_size; break;
+                case 9: data = battery_level_90_symbolic_data; size = battery_level_90_symbolic_size; break;
+                default: data = battery_level_100_symbolic_data; size = battery_level_100_symbolic_size; break;
+            }
         }
     }
 }
@@ -1129,11 +1403,12 @@ static TQImage compositeImages(const TQImage &bg, const TQImage &overlay) {
 }
 
 void YabatmanTrayIcon::updateIcon() {
+    bool hasBattery = m_inactivity->hasBattery();
     int percentage = m_inactivity->getBatteryPercentage();
     int charging = m_inactivity->getChargingState();
 
     // Handle charging animation state
-    bool isAnimating = (charging == 1 && m_config->animate_charge_icon);
+    bool isAnimating = (hasBattery && charging == 1 && m_config->animate_charge_icon);
     if (isAnimating) {
         if (!m_chargeAnimTimer->isActive()) {
             int currentLevel = percentage / 10;
@@ -1153,7 +1428,7 @@ void YabatmanTrayIcon::updateIcon() {
     }
 
     // Blink on critical alert level if configured
-    if (percentage <= m_config->critical_level && m_config->icon_blink_on_critical && charging == 0) {
+    if (hasBattery && percentage <= m_config->critical_level && m_config->icon_blink_on_critical && charging == 0) {
         if (!m_blinkTimer->isActive()) m_blinkTimer->start(500); // blink every 500ms
     } else {
         m_blinkTimer->stop();
@@ -1161,7 +1436,7 @@ void YabatmanTrayIcon::updateIcon() {
 
     // Determine color if custom tinting is enabled
     TQColor col;
-    if (m_config->coloured_icon) {
+    if (hasBattery && m_config->coloured_icon) {
         bool isFull = (charging == 2 || percentage >= 99);
         if (percentage <= m_config->critical_level) {
             if (m_config->custom_color_critical) {
@@ -1192,9 +1467,19 @@ void YabatmanTrayIcon::updateIcon() {
 
     bool mediaPlaying = m_inactivity->isMediaPlaying();
     bool presentationMode = m_inactivity->isPresentationMode();
-    bool colouredIcon = m_config->coloured_icon;
+    bool colouredIcon = (hasBattery && m_config->coloured_icon);
     bool mediaModeIcon = m_config->media_mode_icon;
     bool presentationModeIcon = m_config->presentation_mode_icon;
+    TQString batteryStyle = "win10";
+    if (m_config) {
+        if (m_config->battery_icon_style == "win11") {
+            batteryStyle = "win11";
+        } else if (m_config->battery_icon_style == "alt" || m_config->battery_icon_style == "Alt") {
+            batteryStyle = "Alt";
+        }
+    }
+    YabatmanTheme theme = resolveTheme(m_config);
+    bool isDarkMode = theme.isDark;
 
     static int lastActivePercentage = -1;
     static int lastCharging = -1;
@@ -1205,7 +1490,63 @@ void YabatmanTrayIcon::updateIcon() {
     static bool lastMediaModeIcon = false;
     static bool lastPresentationModeIcon = false;
     static TQColor lastColor;
+    static TQString lastBatteryStyle;
+    static bool lastDarkMode = false;
+    static bool lastHasBattery = true;
     static TQPixmap cachedPixmap;
+
+    if (!hasBattery) {
+        if (lastHasBattery == false &&
+            batteryStyle == lastBatteryStyle &&
+            isDarkMode == lastDarkMode &&
+            !cachedPixmap.isNull())
+        {
+            setPixmap(cachedPixmap);
+            repaint(false);
+            TQToolTip::add(this, "No battery");
+            return;
+        }
+
+        lastHasBattery = false;
+        lastBatteryStyle = batteryStyle;
+        lastDarkMode = isDarkMode;
+
+        const unsigned char *data = NULL;
+        size_t size = 0;
+        getBatteryIconData(0, 0, data, size, batteryStyle);
+
+        TQImage img;
+        if (data && size > 0) {
+            img = loadEmbeddedPng(data, size);
+            if (!img.isNull() && isDarkMode) {
+                invertImage(img);
+            }
+        }
+
+        static TQImage nobatOverlay;
+        if (nobatOverlay.isNull()) {
+            nobatOverlay = loadEmbeddedPng(nobat_data, nobat_size);
+        }
+        if (!nobatOverlay.isNull()) {
+            TQImage ov = nobatOverlay;
+            if (isDarkMode) {
+                invertImage(ov);
+            }
+            if (!img.isNull()) {
+                img = compositeImages(img, ov);
+            } else {
+                img = ov;
+            }
+        }
+
+        cachedPixmap = TQPixmap(img);
+        setPixmap(cachedPixmap);
+        repaint(false);
+        TQToolTip::add(this, "No battery");
+        return;
+    }
+
+    lastHasBattery = true;
 
     if (activePercentage == lastActivePercentage &&
         charging == lastCharging &&
@@ -1216,6 +1557,8 @@ void YabatmanTrayIcon::updateIcon() {
         mediaModeIcon == lastMediaModeIcon &&
         presentationModeIcon == lastPresentationModeIcon &&
         col == lastColor &&
+        batteryStyle == lastBatteryStyle &&
+        isDarkMode == lastDarkMode &&
         !cachedPixmap.isNull())
     {
         setPixmap(cachedPixmap);
@@ -1244,17 +1587,23 @@ void YabatmanTrayIcon::updateIcon() {
     lastMediaModeIcon = mediaModeIcon;
     lastPresentationModeIcon = presentationModeIcon;
     lastColor = col;
+    lastBatteryStyle = batteryStyle;
+    lastDarkMode = isDarkMode;
 
     // Load base icon
     const unsigned char *data = NULL;
     size_t size = 0;
-    getBatteryIconData(activePercentage, charging, data, size);
+    getBatteryIconData(activePercentage, charging, data, size, batteryStyle);
 
     TQImage img;
     if (data && size > 0) {
         img = loadEmbeddedPng(data, size);
-        if (!img.isNull() && colouredIcon) {
-            tintImage(img, col);
+        if (!img.isNull()) {
+            if (colouredIcon) {
+                tintImage(img, col);
+            } else if (isDarkMode) {
+                invertImage(img);
+            }
         }
     }
 
@@ -1266,7 +1615,11 @@ void YabatmanTrayIcon::updateIcon() {
                 mediaOverlay = loadEmbeddedPng(media_data, media_size);
             }
             if (!mediaOverlay.isNull()) {
-                img = compositeImages(img, mediaOverlay);
+                TQImage ov = mediaOverlay;
+                if (isDarkMode && !colouredIcon) {
+                    invertImage(ov);
+                }
+                img = compositeImages(img, ov);
             }
         } else if (presentationMode && presentationModeIcon) {
             static TQImage presOverlay;
@@ -1274,7 +1627,11 @@ void YabatmanTrayIcon::updateIcon() {
                 presOverlay = loadEmbeddedPng(pres_data, pres_size);
             }
             if (!presOverlay.isNull()) {
-                img = compositeImages(img, presOverlay);
+                TQImage ov = presOverlay;
+                if (isDarkMode && !colouredIcon) {
+                    invertImage(ov);
+                }
+                img = compositeImages(img, ov);
             }
         }
     }

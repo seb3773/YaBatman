@@ -3,6 +3,7 @@
 
 #include <tqdialog.h>
 #include <tqlabel.h>
+#include <tqcombobox.h>
 
 class InactivityManager;
 class BatteryLogger;
@@ -20,6 +21,7 @@ protected:
 private slots:
     void onBatteryStatusChanged(int pct, int chg);
     void onCalibrateBattery();
+    void onBatterySelected(int index);
 
 private:
     void getBatterySysfsInfo();
@@ -31,6 +33,9 @@ private:
     BatteryLogger *m_logger;
     TQString m_batteryPath;
     TQString m_batteryName;
+
+    TQComboBox *m_batteryCombo;
+    int m_selectedBatteryIndex;
 
     // Battery values
     TQString m_manufacturer;
@@ -54,6 +59,15 @@ private:
     double m_avgDischargeRate;
     double m_currentRate;
 
+    // Dynamic model & design labels
+    TQLabel *m_vendorVal;
+    TQLabel *m_modelVal;
+    TQLabel *m_serialNumberVal;
+    TQLabel *m_technologyVal;
+    TQLabel *m_designCapacityVal;
+    TQLabel *m_fullCapacityVal;
+    TQLabel *m_voltageMinVal;
+
     // Labels for dynamic updates
     TQLabel *m_currentCapVal;
     TQLabel *m_statusVal;
@@ -70,6 +84,7 @@ private:
     TQLabel *m_remainingEnergyVal;
     TQLabel *m_lastCalibVal;
     TQLabel *m_sec1Icon;
+    bool m_isDark;
 };
 
 #endif // BATTERY_INFO_DIALOG_H

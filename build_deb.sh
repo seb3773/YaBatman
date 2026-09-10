@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PKG_NAME="yabatman"
-PKG_VERSION="1.1-4"
+PKG_VERSION="1.2-2"
 PKG_MAINTAINER="seb3773"
 PKG_SECTION="admin"
 PKG_PRIORITY="optional"
@@ -253,8 +253,9 @@ After=local-fs.target
 [Service]
 Type=simple
 ExecStart=/usr/sbin/yabatmand
-Restart=always
-RestartSec=2
+Restart=on-failure
+RestartSec=1
+TimeoutStopSec=5
 
 [Install]
 WantedBy=multi-user.target

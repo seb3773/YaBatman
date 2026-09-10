@@ -57,9 +57,17 @@ MENU_ICON_SIZES = {
 }
 
 def generate_header_file(directory):
-    pattern = re.compile(r'battery-level-.*-symbolic\.png')
+    pattern = re.compile(r'battery-level-.*-symbolic(-w11|-alt)?\.png')
     image_files = [os.path.join(directory, f) for f in os.listdir(directory)
-                   if pattern.match(f) or f in ("yabatman_ac.png", "yabatman_bat.png","yabatman_crit.png","backlight.png","settings.png","transparent_icon.png","pres.png","media.png","warn.png","history.png","info.png","charge.png", "uncharge.png","powernap.png","yabatman.png","presmode.png","eco.png","perf.png","iswifi.png","check.png", "health.png", "indicators.png", "model.png", "times.png")]
+                   if pattern.match(f) or f in ("yabatman_ac.png", "yabatman_bat.png","yabatman_crit.png","backlight.png","settings.png","transparent_icon.png","pres.png","media.png","nobat.png","warn.png","history.png","info.png","charge.png", "uncharge.png","powernap.png","yabatman.png","presmode.png","eco.png","perf.png","iswifi.png","check.png", "health.png", "indicators.png", "model.png", "times.png")]
+
+    # Scan subdirectories such as icons/win11/
+    for sub in sorted(os.listdir(directory)):
+        subpath = os.path.join(directory, sub)
+        if os.path.isdir(subpath):
+            for f in sorted(os.listdir(subpath)):
+                if pattern.match(f):
+                    image_files.append(os.path.join(subpath, f))
 
     if not image_files:
         print(f"no icons found in {directory}")

@@ -2,6 +2,7 @@
 #include "inactivity_manager.h"
 #include "calibration_manager.h"
 #include "battery_icons.h"
+#include "theme_utils.h"
 #include <tqfile.h>
 #include <tqtextstream.h>
 #include <tqdir.h>
@@ -29,6 +30,8 @@ BatteryInfoDialog::BatteryInfoDialog(InactivityManager *inactivity, CalibrationM
     m_inactivity = inactivity;
     m_calibration = calibration;
     m_logger = m_inactivity->getBatteryLogger();
+    m_selectedBatteryIndex = 0;
+    m_batteryCombo = NULL;
     setCaption("Battery Information");
     setWFlags(WStyle_Customize | WStyle_DialogBorder | WStyle_Title);
 
@@ -57,17 +60,17 @@ void BatteryInfoDialog::keyPressEvent(TQKeyEvent *e) {
     }
 }
 
-void BatteryInfoDialog::getBatterySysfsInfo() {
-    m_batteryPath = m_inactivity->getBatteryPath();
-    m_batteryName = "";
-    if (!m_batteryPath.isEmpty()) {
-        int idx = m_batteryPath.findRev('/');
-        if (idx != -1) {
-            m_batteryName = m_batteryPath.mid(idx + 1);
-        }
-    }
+void BatteryInfoDialog::onBatterySelected(int index) {
+    m_selectedBatteryIndex = index;
+    getBatterySysfsInfo();
+    updateUIValues();
+}
 
-    if (m_batteryPath.isEmpty()) {
+void BatteryInfoDialog::getBatterySysfsInfo() {
+    int count = m_inactivity->getBatteryCount();
+    if (count == 0) {
+        m_batteryPath = "";
+        m_batteryName = "";
         m_manufacturer = "Unknown";
         m_model = "No Battery Detected";
         m_technology = "N/A";
@@ -89,30 +92,62 @@ void BatteryInfoDialog::getBatterySysfsInfo() {
         return;
     }
 
-    m_manufacturer = readSysfsString(m_batteryPath + "/manufacturer");
-    m_model = readSysfsString(m_batteryPath + "/model_name");
-    m_technology = readSysfsString(m_batteryPath + "/technology");
-    m_status = readSysfsString(m_batteryPath + "/status");
+    const TQValueList<BatteryDevice> &bats = m_inactivity->getBatteries();
 
-    m_designCapacity = readSysfsInt(m_batteryPath + "/energy_full_design");
-    if (m_designCapacity == 0) m_designCapacity = readSysfsInt(m_batteryPath + "/charge_full_design");
+    if (count > 1 && m_selectedBatteryIndex == 0) {
+        // Combined Overview
+        m_batteryPath = "";
+        m_batteryName = "Combined";
+        m_manufacturer = "Multiple Vendors";
+        m_model = TQString("System Batteries (%1 units)").arg(count);
+        m_serialNumber = "Combined";
+        m_technology = bats.first().technology.isEmpty() ? "N/A" : bats.first().technology;
+        m_status = (m_inactivity->getChargingState() == 1 ? "Charging" : (m_inactivity->getChargingState() == 2 ? "Full" : "Discharging"));
+        m_capacityPercent = m_inactivity->getBatteryPercentage();
 
-    m_fullCapacity = readSysfsInt(m_batteryPath + "/energy_full");
-    if (m_fullCapacity == 0) m_fullCapacity = readSysfsInt(m_batteryPath + "/charge_full");
+        m_designCapacity = 0;
+        m_fullCapacity = 0;
+        m_currentCapacity = 0;
+        m_powerNow = 0;
+        m_voltageNow = 0;
+        m_voltageMin = 0;
+        m_cycleCount = 0;
 
-    m_currentCapacity = readSysfsInt(m_batteryPath + "/energy_now");
-    if (m_currentCapacity == 0) m_currentCapacity = readSysfsInt(m_batteryPath + "/charge_now");
+        for (TQValueList<BatteryDevice>::ConstIterator it = bats.begin(); it != bats.end(); ++it) {
+            m_designCapacity += (*it).energyDesign;
+            m_fullCapacity += (*it).energyFull;
+            m_currentCapacity += (*it).energyNow;
+            m_powerNow += (*it).powerNow;
+            m_voltageNow += (*it).voltageNow;
+            m_voltageMin += (*it).voltageMin;
+            m_cycleCount += (*it).cycleCount;
+        }
+        if (count > 0) {
+            m_voltageNow /= count;
+            m_voltageMin /= count;
+        }
+    } else {
+        // Specific battery (or only 1 battery exists)
+        int idx = (count == 1 || m_selectedBatteryIndex == 0) ? 0 : (m_selectedBatteryIndex - 1);
+        if (idx < 0 || idx >= count) idx = 0;
+        const BatteryDevice &dev = bats[idx];
 
-    m_capacityPercent = readSysfsInt(m_batteryPath + "/capacity");
-    m_voltageNow = readSysfsInt(m_batteryPath + "/voltage_now");
-    m_voltageMin = readSysfsInt(m_batteryPath + "/voltage_min_design");
-
-    m_powerNow = readSysfsInt(m_batteryPath + "/power_now");
-    if (m_powerNow == 0) m_powerNow = readSysfsInt(m_batteryPath + "/current_now");
-
-    m_cycleCount = readSysfsInt(m_batteryPath + "/cycle_count");
-    m_serialNumber = readSysfsString(m_batteryPath + "/serial_number");
-    if (m_serialNumber.isEmpty()) m_serialNumber = "N/A";
+        m_batteryPath = dev.path;
+        m_batteryName = dev.name;
+        m_manufacturer = dev.vendor.isEmpty() ? "Unknown" : dev.vendor;
+        m_model = dev.model.isEmpty() ? "Unknown" : dev.model;
+        m_serialNumber = dev.serial.isEmpty() ? "N/A" : dev.serial;
+        m_technology = dev.technology.isEmpty() ? "N/A" : dev.technology;
+        m_status = dev.status;
+        m_capacityPercent = dev.percentage;
+        m_designCapacity = dev.energyDesign;
+        m_fullCapacity = dev.energyFull;
+        m_currentCapacity = dev.energyNow;
+        m_powerNow = dev.powerNow;
+        m_voltageNow = dev.voltageNow;
+        m_voltageMin = dev.voltageMin;
+        m_cycleCount = dev.cycleCount;
+    }
 
     // Health percentage calculation
     if (m_designCapacity > 0) {
@@ -148,20 +183,16 @@ void BatteryInfoDialog::getBatterySysfsInfo() {
 void BatteryInfoDialog::setupUI() {
     TQVBoxLayout *mainLayout = new TQVBoxLayout(this, 0, 0);
 
+    YabatmanTheme theme = resolveTheme(m_inactivity->getConfig());
+    m_isDark = theme.isDark;
+
     // Title Block
     TQFrame *headerFrame = new TQFrame(this);
-    headerFrame->setPaletteBackgroundColor(TQColor(215, 215, 215)); // Darker gray background
-    
     TQHBoxLayout *titleLayout = new TQHBoxLayout(headerFrame, 10, 10);
     
     // Icon
     TQLabel *iconLabel = new TQLabel(headerFrame);
-    TQImage img;
-    if (img.loadFromData(info_data, info_size, "PNG")) {
-        TQPixmap pm;
-        pm.convertFromImage(img);
-        iconLabel->setPixmap(pm);
-    }
+    iconLabel->setPixmap(getThemedPixmap(info_data, info_size, 32, 32, theme.isDark));
     titleLayout->addWidget(iconLabel, 0, AlignVCenter);
 
     // Title Text
@@ -175,9 +206,35 @@ void BatteryInfoDialog::setupUI() {
     
     mainLayout->addWidget(headerFrame);
 
+    applyDialogTheme(this, theme, headerFrame, titleText);
+
+    TQString secTitleColor = theme.isDark ? "#5294e2" : "#1a5fb4";
+
     TQVBoxLayout *contentLayout = new TQVBoxLayout(mainLayout, 12);
     contentLayout->setMargin(15);
     contentLayout->addSpacing(8);
+
+    if (m_inactivity->getBatteryCount() > 1) {
+        TQHBoxLayout *comboLayout = new TQHBoxLayout(contentLayout, 8);
+        TQLabel *selectLbl = new TQLabel("<b>Battery Device:</b>", this);
+        m_batteryCombo = new TQComboBox(false, this);
+        m_batteryCombo->insertItem("All Batteries (Combined Overview)");
+        const TQValueList<BatteryDevice> &bats = m_inactivity->getBatteries();
+        int bidx = 1;
+        for (TQValueList<BatteryDevice>::ConstIterator it = bats.begin(); it != bats.end(); ++it, ++bidx) {
+            TQString label;
+            label.sprintf("Battery %d (%s) - %d%%", bidx, (*it).name.latin1(), (*it).percentage);
+            m_batteryCombo->insertItem(label);
+        }
+        m_batteryCombo->setCurrentItem(m_selectedBatteryIndex);
+        comboLayout->addWidget(selectLbl);
+        comboLayout->addWidget(m_batteryCombo, 1);
+        comboLayout->addStretch();
+        connect(m_batteryCombo, TQT_SIGNAL(activated(int)), this, TQT_SLOT(onBatterySelected(int)));
+        contentLayout->addSpacing(6);
+    } else {
+        m_batteryCombo = NULL;
+    }
 
     // Layout Columns
     TQHBoxLayout *columnsLayout = new TQHBoxLayout(contentLayout, 15);
@@ -194,33 +251,6 @@ void BatteryInfoDialog::setupUI() {
             r++; \
         }
 
-    #define ADD_GRID_ROW_STATIC(grid, labelText, valueText, r) \
-        { \
-            TQLabel* lbl = new TQLabel("<b>" labelText "</b>", this); \
-            TQLabel* val = new TQLabel(valueText, this); \
-            grid->addWidget(lbl, r, 0); \
-            grid->addWidget(val, r, 1); \
-            r++; \
-        }
-
-    // Capacity formatters
-    TQString designCapStr = "N/A";
-    TQString fullCapStr = "N/A";
-    if (m_designCapacity > 0) {
-        if (readSysfsInt(m_batteryPath + "/energy_full_design") > 0 || readSysfsInt(m_batteryPath + "/energy_full") > 0) {
-            designCapStr.sprintf("%.3f Wh", m_designCapacity / 1000000.0);
-            fullCapStr.sprintf("%.3f Wh", m_fullCapacity / 1000000.0);
-        } else {
-            designCapStr.sprintf("%.3f Ah", m_designCapacity / 1000000.0);
-            fullCapStr.sprintf("%.3f Ah", m_fullCapacity / 1000000.0);
-        }
-    }
-
-    TQString minVoltageStr = "N/A";
-    if (m_voltageMin > 0) {
-        minVoltageStr.sprintf("%.3f V", m_voltageMin / 1000000.0);
-    }
-
     // --- LEFT COLUMN ---
 
     TQGridLayout *leftGrid = new TQGridLayout(leftCol, 15, 3, 4);
@@ -233,17 +263,21 @@ void BatteryInfoDialog::setupUI() {
     // 5. Model Details
     TQHBoxLayout *sec5Layout = new TQHBoxLayout(6);
     TQLabel *sec5Icon = new TQLabel(this);
-    sec5Icon->setPixmap(getScaledIcon(model_data, model_size, 32, 32));
-    TQLabel *sec5 = new TQLabel("<b><font size=\"+0.5\" color=\"#1a5fb4\">Model Details</font></b>", this);
+    sec5Icon->setPixmap(getThemedPixmap(model_data, model_size, 32, 32, theme.isDark));
+    TQLabel *sec5 = new TQLabel(TQString("<b><font size=\"+0.5\" color=\"%1\">Model Details</font></b>").arg(secTitleColor), this);
     sec5Layout->addWidget(sec5Icon);
     sec5Layout->addWidget(sec5);
     sec5Layout->addStretch();
     leftGrid->addMultiCellLayout(sec5Layout, rl, rl, 0, 2);
     rl++;
-    ADD_GRID_ROW_STATIC(leftGrid, "Vendor:", m_manufacturer.isEmpty() ? "Unknown" : m_manufacturer, rl);
-    ADD_GRID_ROW_STATIC(leftGrid, "Device:", m_model.isEmpty() ? "Unknown" : m_model, rl);
-    ADD_GRID_ROW_STATIC(leftGrid, "Serial Number:", m_serialNumber.isEmpty() ? "Unknown" : m_serialNumber, rl);
-    ADD_GRID_ROW_STATIC(leftGrid, "Technology:", m_technology.isEmpty() ? "Unknown" : m_technology, rl);
+    m_vendorVal = new TQLabel(this);
+    m_modelVal = new TQLabel(this);
+    m_serialNumberVal = new TQLabel(this);
+    m_technologyVal = new TQLabel(this);
+    ADD_GRID_ROW(leftGrid, "Vendor:", m_vendorVal, rl);
+    ADD_GRID_ROW(leftGrid, "Device:", m_modelVal, rl);
+    ADD_GRID_ROW(leftGrid, "Serial Number:", m_serialNumberVal, rl);
+    ADD_GRID_ROW(leftGrid, "Technology:", m_technologyVal, rl);
 
     // Spacer
     TQWidget *spacerL1 = new TQWidget(this);
@@ -254,8 +288,8 @@ void BatteryInfoDialog::setupUI() {
     // 3. Energy Indicators
     TQHBoxLayout *sec3Layout = new TQHBoxLayout(6);
     TQLabel *sec3Icon = new TQLabel(this);
-    sec3Icon->setPixmap(getScaledIcon(indicators_data, indicators_size, 32, 32));
-    TQLabel *sec3 = new TQLabel("<b><font size=\"+0.5\" color=\"#1a5fb4\">Energy Indicators</font></b>", this);
+    sec3Icon->setPixmap(getThemedPixmap(indicators_data, indicators_size, 32, 32, theme.isDark));
+    TQLabel *sec3 = new TQLabel(TQString("<b><font size=\"+0.5\" color=\"%1\">Energy Indicators</font></b>").arg(secTitleColor), this);
     sec3Layout->addWidget(sec3Icon);
     sec3Layout->addWidget(sec3);
     sec3Layout->addStretch();
@@ -265,9 +299,11 @@ void BatteryInfoDialog::setupUI() {
     m_powerNowVal = new TQLabel(this);
     m_currentRateVal = new TQLabel(this);
     m_currentRateLbl = new TQLabel("<b>Current discharging rate:</b>", this);
+    m_designCapacityVal = new TQLabel(this);
+    m_fullCapacityVal = new TQLabel(this);
 
-    ADD_GRID_ROW_STATIC(leftGrid, "Design Capacity:", designCapStr, rl);
-    ADD_GRID_ROW_STATIC(leftGrid, "Full Charged Capacity:", fullCapStr, rl);
+    ADD_GRID_ROW(leftGrid, "Design Capacity:", m_designCapacityVal, rl);
+    ADD_GRID_ROW(leftGrid, "Full Charged Capacity:", m_fullCapacityVal, rl);
     ADD_GRID_ROW(leftGrid, "Remaining Energy:", m_remainingEnergyVal, rl);
     ADD_GRID_ROW(leftGrid, "Net Energy Rate:", m_powerNowVal, rl);
 
@@ -288,7 +324,7 @@ void BatteryInfoDialog::setupUI() {
     // 1. State of Charge
     TQHBoxLayout *sec1Layout = new TQHBoxLayout(6);
     m_sec1Icon = new TQLabel(this);
-    TQLabel *sec1 = new TQLabel("<b><font size=\"+0.5\" color=\"#1a5fb4\">State of Charge</font></b>", this);
+    TQLabel *sec1 = new TQLabel(TQString("<b><font size=\"+0.5\" color=\"%1\">State of Charge</font></b>").arg(secTitleColor), this);
     sec1Layout->addWidget(m_sec1Icon);
     sec1Layout->addWidget(sec1);
     sec1Layout->addStretch();
@@ -310,8 +346,8 @@ void BatteryInfoDialog::setupUI() {
     // 2. Time Calculations
     TQHBoxLayout *sec2Layout = new TQHBoxLayout(6);
     TQLabel *sec2Icon = new TQLabel(this);
-    sec2Icon->setPixmap(getScaledIcon(times_data, times_size, 32, 32));
-    TQLabel *sec2 = new TQLabel("<b><font size=\"+0.5\" color=\"#1a5fb4\">Time Calculations</font></b>", this);
+    sec2Icon->setPixmap(getThemedPixmap(times_data, times_size, 32, 32, theme.isDark));
+    TQLabel *sec2 = new TQLabel(TQString("<b><font size=\"+0.5\" color=\"%1\">Time Calculations</font></b>").arg(secTitleColor), this);
     sec2Layout->addWidget(sec2Icon);
     sec2Layout->addWidget(sec2);
     sec2Layout->addStretch();
@@ -337,16 +373,17 @@ void BatteryInfoDialog::setupUI() {
     // 4. Voltage Statistics
     TQHBoxLayout *sec4Layout = new TQHBoxLayout(6);
     TQLabel *sec4Icon = new TQLabel(this);
-    sec4Icon->setPixmap(getScaledIcon(charge_data, charge_size, 32, 32));
-    TQLabel *sec4 = new TQLabel("<b><font size=\"+0.5\" color=\"#1a5fb4\">Voltage Statistics</font></b>", this);
+    sec4Icon->setPixmap(getThemedPixmap(charge_data, charge_size, 32, 32, theme.isDark));
+    TQLabel *sec4 = new TQLabel(TQString("<b><font size=\"+0.5\" color=\"%1\">Voltage Statistics</font></b>").arg(secTitleColor), this);
     sec4Layout->addWidget(sec4Icon);
     sec4Layout->addWidget(sec4);
     sec4Layout->addStretch();
     rightGrid->addMultiCellLayout(sec4Layout, rr, rr, 0, 2);
     rr++;
     m_voltageVal = new TQLabel(this);
+    m_voltageMinVal = new TQLabel(this);
     ADD_GRID_ROW(rightGrid, "Current Voltage:", m_voltageVal, rr);
-    ADD_GRID_ROW_STATIC(rightGrid, "Design Minimum Voltage:", minVoltageStr, rr);
+    ADD_GRID_ROW(rightGrid, "Design Minimum Voltage:", m_voltageMinVal, rr);
 
     // Spacer
     TQWidget *spacerR1 = new TQWidget(this);
@@ -357,8 +394,8 @@ void BatteryInfoDialog::setupUI() {
     // 6. Health Evaluations
     TQHBoxLayout *sec6Layout = new TQHBoxLayout(6);
     TQLabel *sec6Icon = new TQLabel(this);
-    sec6Icon->setPixmap(getScaledIcon(health_data, health_size, 32, 32));
-    TQLabel *sec6 = new TQLabel("<b><font size=\"+0.5\" color=\"#1a5fb4\">Health Evaluations</font></b>", this);
+    sec6Icon->setPixmap(getThemedPixmap(health_data, health_size, 32, 32, theme.isDark));
+    TQLabel *sec6 = new TQLabel(TQString("<b><font size=\"+0.5\" color=\"%1\">Health Evaluations</font></b>").arg(secTitleColor), this);
     sec6Layout->addWidget(sec6Icon);
     sec6Layout->addWidget(sec6);
     sec6Layout->addStretch();
@@ -381,7 +418,6 @@ void BatteryInfoDialog::setupUI() {
     rightCol->addStretch();
 
     #undef ADD_GRID_ROW
-    #undef ADD_GRID_ROW_STATIC
 
     updateUIValues();
 
@@ -404,6 +440,28 @@ void BatteryInfoDialog::setupUI() {
 }
 
 void BatteryInfoDialog::updateUIValues() {
+    // Model Details
+    m_vendorVal->setText(m_manufacturer.isEmpty() ? "Unknown" : m_manufacturer);
+    m_modelVal->setText(m_model.isEmpty() ? "Unknown" : m_model);
+    m_serialNumberVal->setText(m_serialNumber.isEmpty() ? "Unknown" : m_serialNumber);
+    m_technologyVal->setText(m_technology.isEmpty() ? "Unknown" : m_technology);
+
+    // Design Capacities
+    TQString designCapStr = "N/A";
+    TQString fullCapStr = "N/A";
+    if (m_designCapacity > 0) {
+        designCapStr.sprintf("%.3f Wh", m_designCapacity / 1000000.0);
+        fullCapStr.sprintf("%.3f Wh", m_fullCapacity / 1000000.0);
+    }
+    m_designCapacityVal->setText(designCapStr);
+    m_fullCapacityVal->setText(fullCapStr);
+
+    TQString minVoltageStr = "N/A";
+    if (m_voltageMin > 0) {
+        minVoltageStr.sprintf("%.3f V", m_voltageMin / 1000000.0);
+    }
+    m_voltageMinVal->setText(minVoltageStr);
+
     // Current capacity percentage
     TQString currentCapStr;
     currentCapStr.sprintf("%d%%", m_capacityPercent);
@@ -512,14 +570,23 @@ void BatteryInfoDialog::updateUIValues() {
 
     // Update State of Charge Header Icon dynamically
     if (m_inactivity->getChargingState() != 0) {
-        m_sec1Icon->setPixmap(getScaledIcon(battery_level_60_charging_symbolic_data, battery_level_60_charging_symbolic_size, 32, 32));
+        m_sec1Icon->setPixmap(getThemedPixmap(battery_level_60_charging_symbolic_data, battery_level_60_charging_symbolic_size, 32, 32, m_isDark));
     } else {
-        m_sec1Icon->setPixmap(getScaledIcon(battery_level_60_symbolic_data, battery_level_60_symbolic_size, 32, 32));
+        m_sec1Icon->setPixmap(getThemedPixmap(battery_level_60_symbolic_data, battery_level_60_symbolic_size, 32, 32, m_isDark));
     }
 }
 
 void BatteryInfoDialog::onBatteryStatusChanged(int /*pct*/, int /*chg*/) {
     getBatterySysfsInfo();
+    if (m_batteryCombo && m_inactivity->getBatteryCount() > 1) {
+        const TQValueList<BatteryDevice> &bats = m_inactivity->getBatteries();
+        int bidx = 1;
+        for (TQValueList<BatteryDevice>::ConstIterator it = bats.begin(); it != bats.end(); ++it, ++bidx) {
+            TQString label;
+            label.sprintf("Battery %d (%s) - %d%%", bidx, (*it).name.latin1(), (*it).percentage);
+            m_batteryCombo->changeItem(label, bidx);
+        }
+    }
     updateUIValues();
 }
 

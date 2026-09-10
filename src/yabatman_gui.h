@@ -121,12 +121,13 @@ private slots:
     void openConfig();
     void openAbout();
     void quitYaBatman();
-    void onCloseTimerTimeout();
 
 private:
     void applyConfigSettings();
     void updateBacklightBlockVisibility();
     void applyPopupGeometry();
+    void updatePerfIcon();
+    void updatePopupIcons();
 
     InactivityManager *m_inactivity;
     CalibrationManager *m_calibration;
@@ -137,6 +138,9 @@ private:
     TQWidget *m_backlightBlock;
     TQSlider *m_blSlider;
     TQSlider *m_profSlider;
+    TQLabel *m_ecoLbl;
+    TQLabel *m_perfLbl;
+    TQLabel *m_sunLbl;
     PopupCheckRow *m_presRow;
     PopupCheckRow *m_powernapRow;
 
@@ -144,8 +148,6 @@ private:
     double m_opacity;
     TQColor m_bgColor;
 
-    TQTimer *m_closeTimer;
-    int m_outsideTicks;
     TQValueList<PopupRow*> m_menuRows;
 };
 
@@ -160,6 +162,7 @@ public slots:
     void onTrayClicked();
     void onBlinkTimeout();
     void onChargeAnimTimeout();
+    void closePopup();
 
 protected:
     virtual void mousePressEvent(TQMouseEvent *e);

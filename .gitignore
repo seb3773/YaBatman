@@ -22,3 +22,9 @@
 # Large uncompressed libraries (tracked via .xz)
 libs/libtqt-mt.a
 
+# Scratch files in root
+Win11Icons32.png
+Win7IconList32.png
+icons8-*.png
+plug.png
+

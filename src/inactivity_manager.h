@@ -4,9 +4,22 @@
 #include <tqobject.h>
 #include <tqtimer.h>
 #include <tqstring.h>
+#include <tqvaluelist.h>
 #include "config_manager.h"
 #include "battery_logger.h"
 #include "yabatman_utils.h"
+
+#ifdef PURE_TQT3
+class DCOPObject {
+public:
+    DCOPObject() {}
+    DCOPObject(const char *) {}
+    virtual ~DCOPObject() {}
+};
+#else
+#include <dcopobject.h>
+class TDEPowersaveDcopCompat;
+#endif
 
 // X11 Forward Declarations
 typedef struct _XDisplay Display;
@@ -16,7 +29,27 @@ struct udev_monitor;
 class TQSocketNotifier;
 class TQThread;
 
-class InactivityManager : public TQObject {
+struct BatteryDevice {
+    TQString name;         // e.g. "BAT0"
+    TQString path;         // e.g. "/sys/class/power_supply/BAT0"
+    TQString vendor;       // manufacturer
+    TQString model;        // model_name
+    TQString serial;       // serial_number
+    TQString technology;   // technology
+    TQString status;       // "Charging", "Discharging", "Full", "Not charging"
+    int percentage;        // 0 - 100
+    int energyNow;         // uWh or uAh
+    int energyFull;        // uWh or uAh
+    int energyDesign;      // uWh or uAh
+    bool isEnergy;         // true if uWh, false if uAh
+    int powerNow;          // uW or uA
+    int voltageNow;        // uV
+    int voltageMin;        // uV
+    int cycleCount;
+    int state;             // 0 = discharging, 1 = charging, 2 = full
+};
+
+class InactivityManager : public TQObject, public DCOPObject {
     TQ_OBJECT
 public:
     InactivityManager(ConfigManager *configManager, YabatmanConfig *config, BatteryLogger *batteryLogger, TQObject *parent = 0);
@@ -34,13 +67,30 @@ public:
 
     TQString getBatteryPath() const { return m_batteryPath; }
 
+    // Multi-battery support
+    bool hasBattery() const { return !m_batteries.isEmpty(); }
+    int getBatteryCount() const { return m_batteries.count(); }
+    const TQValueList<BatteryDevice>& getBatteries() const { return m_batteries; }
+    const BatteryDevice* getBattery(int index) const {
+        if (index >= 0 && index < (int)m_batteries.count()) {
+            return &m_batteries[index];
+        }
+        return NULL;
+    }
+
+    // Sleep inhibitor process check
+    bool hasRunningSleepInhibitors();
+
     // Check states
     bool isMediaPlaying() const { return m_mediaPlaying; }
     bool isPresentationMode() const { return m_presentationMode; }
     void setPresentationMode(bool enable);
 
-    bool isPowernapSelected() const { return m_powernapEnabled; }
-    void setPowernapSelected(bool selected) { m_powernapEnabled = selected; }
+    bool isPowernapSelected() const { return (m_config && m_config->ac_lid_enable_powernap) ? m_powernapEnabled : false; }
+    void setPowernapSelected(bool selected) {
+        if (selected && m_config && !m_config->ac_lid_enable_powernap) return;
+        m_powernapEnabled = selected;
+    }
 
     BatteryLogger* getBatteryLogger() const { return m_batteryLogger; }
     ConfigManager* getConfigManager() const { return m_configManager; }
@@ -61,6 +111,20 @@ public:
     void setRfkillState(const char *target, int state);
     void runCriticalAction();
 
+    // System Power Commands (public for UI & DCOP access)
+    void suspendSystem();
+    void suspendThenHibernate();
+    void hibernateSystem();
+    void hybridSuspendSystem();
+    void lockScreen(bool useOverlay = false);
+    void lockScreenNow();
+
+#ifndef PURE_TQT3
+    // DCOPObject interface
+    virtual bool process(const TQCString &fun, const TQByteArray &data, TQCString &replyType, TQByteArray &replyData);
+    virtual QCStringList functions();
+#endif
+
 signals:
     void batteryStatusChanged(int percentage, int chargingState);
     void presentationModeChanged(bool active);
@@ -74,6 +138,7 @@ signals:
     void wokeUp();
     void triggerSleepTransition(int effect);
     void blackoutScreensaver(bool enable);
+    void dismissPopups();
 
 public slots:
     void forceCheck();
@@ -94,7 +159,6 @@ private slots:
     void checkLidState();
     void restoreBluetooth();
     void iterateGlib();
-    void lockScreenNow();
     void checkWifiAndLockRetry();
     void hideWifiOverlaySlot();
     void reacquireDelayInhibitor();
@@ -104,12 +168,6 @@ private:
     void setupUdevMonitor();
     void teardownUdevMonitor();
 
-    // System Power Commands
-    void suspendSystem();
-    void suspendThenHibernate();
-    void hibernateSystem();
-    void hybridSuspendSystem();
-    void lockScreen(bool useOverlay = false);
     void setScreenDpms(bool enable);
     void disableDpms();
 
@@ -176,6 +234,8 @@ private:
     int m_bluetoothInitialState;
     int m_wifiInitialState;
     int m_powerProfile;
+    int m_lastHwProfile;
+    int m_lastOpmode;
     double m_currentRate;
     time_t m_phaseStartTime;
     int m_phaseStartCapacity;
@@ -250,6 +310,11 @@ private:
     void *m_systemBus;
     void *m_xssInfo;
     TQString m_batteryPath;
+    TQValueList<BatteryDevice> m_batteries;
+#ifndef PURE_TQT3
+    TDEPowersaveDcopCompat *m_tdepowersaveCompat;
+    TDEPowersaveDcopCompat *m_tdepowersaveIfaceCompat;
+#endif
 };
 
 #endif // INACTIVITY_MANAGER_H

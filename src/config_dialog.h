@@ -13,6 +13,8 @@
 #include <tqlabel.h>
 #include "config_manager.h"
 
+#include "tde_screensaver_helper.h"
+
 class TransitionOverlay;
 class ScreensaverWidget;
 
@@ -26,6 +28,7 @@ private slots:
     void onAccept();
     void onResetDefaults();
     void onScreensaverChanged(int index);
+    void onSetupScreensaverClicked();
     void slotSelectionChanged();
     void onAbout();
     void onEcoFreqChanged(int value);
@@ -56,6 +59,8 @@ private slots:
     void onRemoveProcBlacklist();
     void onAddSSID();
     void onRemoveSSID();
+    void onAddSleepInhibitor();
+    void onRemoveSleepInhibitor();
     void onBrowseSlideshowDir();
     void onBatReduceChanged(int val);
     void onBatSleepChanged(int val);
@@ -63,17 +68,23 @@ private slots:
     void onAcReduceChanged(int val);
     void onAcSleepChanged(int val);
     void onAcIdleChanged(int val);
+    void onDarkModeChanged(int index);
 
 private:
     void setupUI();
     void loadConfigValues();
     void saveConfigValues();
+    void applyThemeToDialog(int mode);
     void updateColorButtonBackground(TQPushButton *btn, const TQColor &color);
 
     ConfigManager *m_configManager;
     YabatmanConfig *m_config;
     bool m_hasControllableBacklight;
     bool m_updatingTimeouts;
+
+    TQFrame *m_headerFrame;
+    TQLabel *m_headerTitle;
+    TQLabel *m_headerIcon;
 
     TQListBox *m_sidebar;
     TQWidgetStack *m_widgetStack;
@@ -147,14 +158,22 @@ private:
     TQPushButton *m_procBlAddBtn;
     TQPushButton *m_procBlDelBtn;
 
+    // Tab 8: Sleep Inhibitors
+    TQListBox *m_sleepInhibitorsList;
+    TQPushButton *m_sleepInhibitorAddBtn;
+    TQPushButton *m_sleepInhibitorDelBtn;
+
     TQComboBox *m_tvEffectCombo;
     TQComboBox *m_screensaverCombo;
+    TQStringList m_screensaverIds;
+    TQValueList<TDEScreensaverInfo> m_tdeScreensavers;
     TQLineEdit *m_slideshowDirEdit;
     TQPushButton *m_slideshowBrowseBtn;
     TQCheckBox *m_slideshowRandomCheck;
     TQCheckBox *m_slideshowZoomCheck;
     TQCheckBox *m_closeAnimCheck;
     TQComboBox *m_darkModeCombo;
+    TQComboBox *m_batteryStyleCombo;
     TQSlider *m_opacitySlider;
     TQLabel *m_opacityLbl;
     TQCheckBox *m_presModeIconCheck;
@@ -187,10 +206,12 @@ private:
     TQLabel *m_ecoFreqLabel;
     TQCheckBox *m_balancedUsbCheck;
     TQCheckBox *m_ultraPerfCheck;
+    TQCheckBox *m_unmountExternalCheck;
 
     // Test buttons and widgets
     TQPushButton *m_testTransitionBtn;
     TQPushButton *m_testScreensaverBtn;
+    TQPushButton *m_screensaverSetupBtn;
     TransitionOverlay *m_testTransitionOverlay;
     ScreensaverWidget *m_testScreensaverWidget;
     TQTimer *m_testTransitionTimer;

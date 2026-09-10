@@ -15,23 +15,27 @@ Most Linux power management solutions are either a graphical battery monitor wit
 - **No polkit, no sudo prompts**: The daemon runs as root via systemd; the GUI communicates through a simple Unix socket. No policy frameworks, no authentication popups — just instant, transparent control.
 - **Zero bloat**: Both binaries are compiled with aggressive LTO, section GC, and `sstrip`. The daemon idles at virtually zero CPU. The GUI loads instantly.
 - **Universal compatibility**: Can be compiled natively for Trinity (TDE) or in **standalone static mode** (`./build.sh static`) to run on *any* Linux distribution and desktop environment without installing TDE/TQt3 dependencies.
+- **Native Trinity DCOP Integration**: Full DCOP IPC interface (`YaBatman`) with transparent backwards-compatibility for legacy `tdepowersave` scripts and keybindings.
+- **Multi-Battery Engine**: Full support for multi-battery laptops (e.g., ThinkPads) with energy-weighted aggregate metrics and individual per-battery hardware inspection.
 - **Everything in one place**: Battery status, hardware details, charge history, power profiles, process freezing, screen management, screensavers — all accessible from one system tray icon.
-- **Fully configurable**: 10 dedicated settings panels let you tune every aspect of power behavior, from USB autosuspend exclusions to per-SSID security policies.
+- **Fully configurable**: 11 dedicated settings panels let you tune every aspect of power behavior, from USB autosuspend exclusions and sleep inhibitors to per-SSID security policies.
 
 ## Key Features
 
 Yabatman aims to be one of the most complete battery and power management suites available on Linux, offering features that range from hardcore system optimization to optional visual candy :-)
 
 ### Comprehensive Battery Monitoring
+- **Multi-Battery Engine (Dual & Multi-Battery Support)**: Automatically discovers all `/sys/class/power_supply/BAT*` devices. Computes real energy-weighted battery percentage (`sum(energy_now) / sum(energy_full) * 100`) and aggregate discharge/charge rates. Fully supports dual-battery laptops (e.g., ThinkPad bridge battery systems) with combined remaining runtime.
 - **Dynamic System Tray Integration**: Fully customizable tray icon with adaptive colors, charging animations, and critical level blinking. Choose between symbolic or coloured icon styles with per-level color configuration.
 - **Custom Popup Dashboard**: A sleek, dark/light mode compatible floating panel for quick access to brightness control, performance profiles, and instant metrics (charge rate, discharge rate, estimated time remaining).
-- **Exhaustive Battery Info Dialog**: Deep insights into your hardware — Vendor, Technology, Design/Full/Current Capacity, precise Voltage statistics (min/max/current), instantaneous charge/discharge rates in Watts, cycle count, battery health percentage, and manufacturing data.
+- **Exhaustive Battery Info Dialog**: Deep insights into your hardware — Vendor, Technology, Design/Full/Current Capacity, precise Voltage statistics (min/max/current), instantaneous charge/discharge rates in Watts, cycle count, battery health percentage, and manufacturing data. Features a drop-down selector to inspect individual batteries (`BAT0`, `BAT1`, etc.) or global aggregate statistics.
 - **Battery History Logger**: A built-in graphical history viewer with a compact binary format. Track charge/discharge curves over 24h, 48h, or 72h periods, overlaid with system suspend events and screen on/off transitions. Average charge/discharge rates are computed from real historical data.
 
 ### Advanced Power Management
 Yabatman incorporates aggressive power-saving logic inspired by the fantastic work of the **TLP project** (huge thanks to the TLP developers for paving the way in Linux power management). In many areas, Yabatman goes further by offering real-time GUI control and features not available in TLP.
 
 - **Dynamic Profiles**: Three switchable profiles — *Eco*, *Balanced*, and *Performance* — each with independent settings for AC and Battery mode.
+- **Extreme Performance Booster**: Optional toggle in Settings -> Advanced to treat the Performance profile as "Extreme/Benchmark" (disabling PCIe ASPM, keeping all PCI devices powered, locking highest CPU clocks). Includes automated safety detection to protect AMD APUs against GPU lockups.
 - **CPU Governor & Frequency Control**: Set CPU governor (`powersave`, `performance`, `schedutil`), configure maximum frequency caps, and limit active CPU cores.
 - **PCI & SATA Power Policies**: Control PCI device power management (`default` / `power_supersave`) and SATA link power management (`med_power_with_dipm`, `max_performance`, etc.).
 - **USB Autosuspend**: Enable/disable USB autosuspend globally with automatic exclusion of HID devices (mice, keyboards) and audio interfaces to prevent input lag.
@@ -40,7 +44,13 @@ Yabatman incorporates aggressive power-saving logic inspired by the fantastic wo
 - **Backlight Management**: Direct sysfs brightness control with adaptive dimming on inactivity.
 - **Services Freezing**: Automatically freeze non-essential systemd services (e.g., `baloo`, `updatedb`, `tracker`) when on battery. Fully configurable whitelist/blacklist.
 - **Processes Freezing**: Freeze heavy user-space processes on critical battery. Configurable whitelist/blacklist with regex-based process matching.
+- **Sleep Inhibitor Processes**: Fast, zero-overhead `/proc/[pid]/comm` scanner that detects running heavy tasks (e.g., `blender`, `k3b`, `make`, `ninja`, `ffmpeg`, `rsync`, `handbrake`) and automatically inhibits auto-dimming and sleep while active. Managed from its own dedicated **Sleep Inhibitors** tab (placed right under Processes Freezing).
+- **Safe Removable Media Unmount on Suspend**: Flushes filesystem buffers (`sync`) and leverages Trinity's `kded` `mediamanager` via DCOP to safely unmount external USB drives and media before suspend, then automatically remounts them upon resume.
 - **Smart Inactivity Detection**: Adaptive screen dimming → display sleep → system suspend pipeline with configurable timeouts for AC and Battery independently. Integrated MPRIS detection prevents sleep during media playback, video calls, or presentations.
+
+### Native Trinity DCOP Integration & tdepowersave Compatibility
+- **Full DCOP IPC Interface**: Seamless integration with the Trinity Desktop Environment via DCOP (`yabatman YaBatman`). Control profiles, query battery state, adjust screen brightness, trigger suspend/hibernate, or toggle presentation mode directly from shell scripts, terminal commands, or custom window manager hotkeys.
+- **Legacy `tdepowersave` Drop-In Replacement**: YaBatman transparently exposes companion DCOP objects (`tdepowersave` and `tdepowersaveIface`). Existing system scripts, shortcuts, and panel applets expecting `tdepowersave` work immediately with YaBatman without modification.
 
 ### Security & Session Management
 - **Session Locking**: Configurable lock-on-display-off and lock-on-sleep behavior.
@@ -55,14 +65,17 @@ Yabatman incorporates aggressive power-saving logic inspired by the fantastic wo
 ### Visuals & Screensavers (Optional)
 Because power management doesn't have to be boring, Yabatman includes optional visual features:
 - **7 Built-in Screensavers**: Digital Clock (bouncing), Analog Clock (with sweep second hand and burn-in protection orbit), Matrix Digital Rain, 3D Pipes, Plasma Clouds, Pictures Slideshow (with Ken Burns zoom effect and crossfade transitions), and Starfield Warp.
+- **Native Trinity (TDE) Screensavers Integration**: Automatically detects and lists all installed Trinity screensavers (`.kss`) and embeds them securely via X11 `-window-id` with full parent process supervision (`PR_SET_PDEATHSIG` and graceful SIGTERM/SIGKILL cleanup), direct access to each saver's native "Setup..." dialog, and inclusion in the Random screensaver pool.
 - **Slideshow Configuration**: Choose image directory, enable random order.
 - **Transition Effects**: Smooth sleep/shutdown transition animations — "Old TV turn-off", Circular Wipe, Fade Out, or Random.
 - **Presentation Mode**: One-click toggle to suppress all power actions (dimming, sleep, screensaver) during presentations.
 - **Powernap Mode**: Prevents system sleep/suspension when closing the laptop lid while connected to AC power. Blackouts the laptop display and applies reduced power settings (Low CPU profile, optional Wi-Fi/Bluetooth disabling) so background tasks (downloads, builds, encoding, background scripts) can continue running safely without overheating or sleeping.
 
 ### Appearance & Customization
-- **10 Settings Panels**: General, Battery Profile, AC Profile, Adaptive Features, Security, Services Freezing, Processes Freezing, Transitions & Screensavers, Appearance, and Advanced.
-- **Tray Icon Styles**: Symbolic (monochrome) or Coloured icons with per-level color customization (Normal, Warning, Critical).
+- **11 Settings Panels**: General, Battery Profile, AC Profile, Adaptive Features, Security, Services Freezing, Processes Freezing, Sleep Inhibitors, Transitions & Screensavers, Appearance, and Advanced.
+- **Theme Modes**: Choose between *Follow TDE* (native desktop palette with smart luminance-based icon adaptation), *Light*, or *Dark* mode across all dialogs and panels with automated monochrome icon inversion.
+- **Battery Icon Styles**: Select from *Windows 10* (legacy), *Windows 11*, or *Alt* icon sets, supporting symbolic (monochrome) or coloured icons with per-level color customization.
+- **Missing Battery Detection**: Clean handling of desktop PCs or laptops without battery: safe AC power profiles, suppression of false alerts, dedicated composite overlay tray icon (`nobat.png`), and clear dashboard reporting.
 - **Popup Transparency**: Adjustable popup opacity.
 
 
@@ -77,10 +90,78 @@ Yabatman is split into two robust components:
 
 > **Technical Deep Dive**: For a complete overview of the power-saving pipeline, internal state machines, timeout calculations, and the GUI ↔ Daemon socket protocol, please refer to the detailed [Energy Management Logic Specification](energy_management_logic.md).
 
+### System & IPC Architecture Diagram
+
+```mermaid
+graph TD
+    subgraph Desktop_Session ["Desktop & Session Integration"]
+        CLI["DCOP Client / CLI / Scripts\n(dcop yabatman YaBatman ...)"]
+        HOTKEYS["TDE Shortcuts / Hotkeys\n(Brightness, Sleep, Profile)"]
+        KDED["TDE kded mediamanager\n(Safe Removable Media Unmount)"]
+        PROCS["Running Workloads\n(/proc/[pid]/comm: ninja, blender...)"]
+    end
+
+    subgraph YaBatman_GUI ["YaBatman GUI (TQt3 / C++)"]
+        DCOP_IFACE["DCOP Server\n(YaBatman & tdepowersave compat)"]
+        TRAY["Tray Icon & Dynamic Visuals"]
+        POPUP["Floating Dashboard"]
+        BATT_ENG["Multi-Battery Engine\n(/sys/class/power_supply/BAT*)"]
+        INACT["InactivityManager\n(Idle / Sleep Inhibitors / Safe Media)"]
+        CONFIG["ConfigManager & Settings Dialog\n(11 Configuration Tabs)"]
+        LOGGER["BatteryLogger & Calibration"]
+    end
+
+    subgraph Daemon ["Privileged Daemon (Pure C, Root)"]
+        SOCK["/run/yabatmand/daemon.sock"]
+        DAEMON["yabatmand (~38KB, Zero-CPU Idle)"]
+        KERNEL_SYSFS["Sysfs Power Policies\n(CPU Governor/Freq, PCIe ASPM,\nSATA LPM, USB Autosuspend, Backlight)"]
+        PROC_MGMT["Process & Service Freezing\n(SIGSTOP / SIGCONT / systemd)"]
+    end
+
+    CLI <-->|DCOP IPC| DCOP_IFACE
+    HOTKEYS <-->|DCOP IPC| DCOP_IFACE
+    DCOP_IFACE --> INACT
+    DCOP_IFACE --> CONFIG
+
+    INACT <-->|DCOP query & unmount/remount| KDED
+    INACT <-->|Fast /proc scanner| PROCS
+
+    BATT_ENG -->|Aggregate & Per-BAT Stats| TRAY
+    BATT_ENG -->|Battery Telemetry| POPUP
+    BATT_ENG -->|Sample Data| LOGGER
+
+    CONFIG <-->|Unix Domain Socket| SOCK
+    INACT <-->|Unix Domain Socket| SOCK
+    SOCK <--> DAEMON
+
+    DAEMON -->|sysfs writes| KERNEL_SYSFS
+    DAEMON -->|signals / systemd| PROC_MGMT
+```
+
 ### Class Architecture Diagram
 
 ```mermaid
 classDiagram
+    class DCOPObject {
+        <<TDE Interface>>
+    }
+    class InactivityManager {
+        +InactivityManager()
+        -TQTimer *m_idleTimer
+        -TQTimer *m_mprisTimer
+        -TQStringList m_inhibitorProcesses
+        -TQStringList m_unmountedMediaList
+        +int getBatteryPercentage()
+        +TQString getChargingState()
+        +int getBatteryCount()
+        +TQString currentScheme()
+        +void setScheme(TQString)
+        +bool hasRunningSleepInhibitors()
+        +void safeUnmountRemovableMedia()
+        +void safeRemountRemovableMedia()
+        -void checkIdle()
+        -void detectMprisPlayback()
+    }
     class YabatmanApp {
         +YabatmanApp()
         -YabatmanTrayIcon *m_trayIcon
@@ -89,20 +170,11 @@ classDiagram
         -BatteryLogger *m_batteryLogger
         -CalibrationManager *m_calibrationManager
     }
-    class YabatmanTrayIcon {
-        +YabatmanTrayIcon()
-        -TDEPopupMenu *m_menu
-        -YabatmanPopup *m_customPopup
-        -void showCustomPopup()
-        -void updateIcon()
-    }
-    class InactivityManager {
-        +InactivityManager()
-        -TQTimer *m_idleTimer
-        -TQTimer *m_mprisTimer
-        -void checkIdle()
-        -void detectMprisPlayback()
-        -void handleLidChange()
+    class BatteryInfoDialog {
+        +BatteryInfoDialog()
+        -TQComboBox *m_batterySelector
+        -void populateBatteryList()
+        -void updateBatteryInfo()
     }
     class BatteryLogger {
         +BatteryLogger()
@@ -111,18 +183,60 @@ classDiagram
         +void loadHistory()
         +void saveHistory()
         +void addSample()
-        +void addEvent()
         +double getAverageChargeRate()
         +double getAverageDischargeRate()
     }
-    class CalibrationManager {
-        +CalibrationManager()
-        -CalibrationState m_state
-        -CalibrationOverlay *m_overlay
-        +void startCalibration()
-        +void cancelCalibration()
-        +void handleBatteryUpdate()
-    }
+
+    DCOPObject <|-- InactivityManager
+    YabatmanApp *-- InactivityManager
+    YabatmanApp *-- BatteryLogger
+```
+
+---
+
+## DCOP Remote Control & CLI Automation
+
+When running natively under the Trinity Desktop Environment (TDE), YaBatman registers as a DCOP application under the service identifier `yabatman`. It exposes full programmatic control for shell scripts, terminal commands, cron jobs, or custom desktop shortcuts.
+
+### 1. Primary Interface (`YaBatman`)
+
+```bash
+# --- Query Battery Telemetry ---
+dcop yabatman YaBatman getBatteryPercentage     # Returns battery percentage: e.g. "87"
+dcop yabatman YaBatman getChargingState          # Returns state: "Charging", "Discharging", or "Full"
+dcop yabatman YaBatman getBatteryCount          # Returns number of batteries detected: e.g. "2"
+dcop yabatman YaBatman getRemainingTimeSec       # Returns remaining battery lifetime in seconds
+
+# --- Power Profile Management ---
+dcop yabatman YaBatman listSchemes               # Returns available profiles: "Eco, Balanced, Performance"
+dcop yabatman YaBatman currentScheme             # Returns active profile name: e.g. "Balanced"
+dcop yabatman YaBatman setScheme "Performance"   # Immediately switches power profile
+
+# --- Display Brightness ---
+dcop yabatman YaBatman brightnessGet             # Returns current backlight level (0-100)
+dcop yabatman YaBatman brightnessSet 75          # Adjusts display brightness to 75%
+
+# --- Presentation Mode & Sleep Inhibitors ---
+dcop yabatman YaBatman hasRunningSleepInhibitors # Returns: true / false
+dcop yabatman YaBatman presentationMode          # Returns presentation mode status: true / false
+dcop yabatman YaBatman setPresentationMode true  # Toggles presentation mode on/off
+
+# --- Safe Suspend & Hibernate ---
+dcop yabatman YaBatman suspend                   # Safe suspend (syncs disks + unmounts USB drives)
+dcop yabatman YaBatman hibernate                 # Safe hibernate
+```
+
+### 2. Legacy `tdepowersave` Compatibility
+
+To ensure seamless drop-in compatibility with existing scripts, Trinity keybindings, or third-party applets built for `tdepowersave`, YaBatman automatically provides secondary DCOP bindings for `tdepowersave` and `tdepowersaveIface`:
+
+```bash
+# Query and change scheme via tdepowersave interface
+dcop yabatman tdepowersave scheme
+dcop yabatman tdepowersave setScheme "Performance"
+
+# Query battery status
+dcop yabatman tdepowersave getBatteryStatus
 ```
 
 ---
@@ -177,16 +291,16 @@ Yabatman uses highly aggressive compilation flags (LTO, GC sections, `-Os` for U
 
 You can build `.deb` packages for both modes:
 
-#### Dynamic TDE Package (`yabatman_1.0_amd64.deb`, ~123KB)
+#### Dynamic TDE Package (`yabatman_1.2-2_amd64.deb`)
 ```bash
 ./build_deb.sh
-sudo dpkg -i yabatman_1.0_amd64.deb
+sudo dpkg -i yabatman_1.2-2_amd64.deb
 ```
 
-#### Standalone Static Package (`yabatman_1.0_amd64_static.deb`, ~946KB)
+#### Standalone Static Package (`yabatman_1.2-2_amd64_static.deb`)
 ```bash
 ./build_deb.sh static
-sudo dpkg -i yabatman_1.0_amd64_static.deb
+sudo dpkg -i yabatman_1.2-2_amd64_static.deb
 ```
 
 The `.deb` package includes:
@@ -208,7 +322,7 @@ For users running the **Q4OS Linux** distribution, you can generate a one-click 
 ./build_qsi.sh
 ```
 
-This script embeds the Debian package and custom graphical setup templates into `yabatman_1.0_amd64.qsi` (~186KB). On Q4OS, users can simply double-click the `.qsi` file to launch the native installation wizard.
+This script embeds the Debian package and custom graphical setup templates into `yabatman_1.2-2_amd64.qsi`. On Q4OS, users can simply double-click the `.qsi` file to launch the native installation wizard.
 
 ---
 
@@ -230,8 +344,9 @@ After=local-fs.target
 [Service]
 Type=simple
 ExecStart=/usr/sbin/yabatmand
-Restart=always
-RestartSec=2
+Restart=on-failure
+RestartSec=1
+TimeoutStopSec=5
 
 [Install]
 WantedBy=multi-user.target
