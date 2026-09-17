@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
+#include <errno.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/prctl.h>
@@ -167,6 +168,18 @@ void ScreensaverWidget::showEvent(TQShowEvent *e) {
     }
 }
 
+void ScreensaverWidget::hideEvent(TQHideEvent *e) {
+    TQWidget::hideEvent(e);
+    stopExternalSaver();
+    if (m_timer) m_timer->stop();
+}
+
+void ScreensaverWidget::closeEvent(TQCloseEvent *e) {
+    stopExternalSaver();
+    if (m_timer) m_timer->stop();
+    e->accept();
+}
+
 void ScreensaverWidget::startExternalSaver() {
     if (m_externalFullPath.isEmpty() || m_childPid > 0) return;
 
@@ -194,6 +207,8 @@ void ScreensaverWidget::startExternalSaver() {
         return;
     }
     if (pid == 0) {
+        setpgid(0, 0);
+
         #ifdef PR_SET_PDEATHSIG
         prctl(PR_SET_PDEATHSIG, SIGTERM);
         #endif
@@ -211,11 +226,23 @@ void ScreensaverWidget::stopExternalSaver() {
     if (m_childPid > 0) {
         pid_t pid = m_childPid;
         m_childPid = -1;
+
+        kill(-pid, SIGTERM);
         kill(pid, SIGTERM);
-        usleep(30000);
+
         int status = 0;
-        pid_t r = waitpid(pid, &status, WNOHANG);
-        if (r == 0) {
+        bool reaped = false;
+        for (int i = 0; i < 10; ++i) {
+            pid_t r = waitpid(pid, &status, WNOHANG);
+            if (r == pid || (r < 0 && errno == ECHILD)) {
+                reaped = true;
+                break;
+            }
+            usleep(20000); // 20ms
+        }
+
+        if (!reaped) {
+            kill(-pid, SIGKILL);
             kill(pid, SIGKILL);
             waitpid(pid, &status, 0);
         }
@@ -294,14 +321,16 @@ void ScreensaverWidget::checkExternalActivity() {
 
 void ScreensaverWidget::setBlackout(bool enable) {
     m_blackout = enable;
-    if (m_isExternalTde) {
-        update();
-        return;
-    }
     if (m_blackout) {
+        if (m_isExternalTde) {
+            stopExternalSaver();
+        }
         if (m_timer) m_timer->stop();
         update(); // Paint solid black immediately
     } else {
+        if (m_isExternalTde && m_childPid <= 0) {
+            startExternalSaver();
+        }
         if (m_timer) m_timer->start(m_interval);
         update();
     }
@@ -439,6 +468,8 @@ void ScreensaverWidget::triggerActivity() {
         tqApp->removeEventFilter(this);
         releaseKeyboard();
         releaseMouse();
+        stopExternalSaver();
+        if (m_timer) m_timer->stop();
         emit userActivityDetected();
     }
 }

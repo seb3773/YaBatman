@@ -162,15 +162,26 @@ private slots:
         launchScreensaver();
     }
 
+    void dismissScreensaver() {
+        if (m_screensaverWidget) {
+            m_screensaverWidget->hide();
+            delete m_screensaverWidget;
+            m_screensaverWidget = NULL;
+        }
+    }
+
     void launchScreensaver() {
         if (m_config->ac_screensaver != "none") {
             dismissAllDialogs();
 
-            if (m_screensaverWidget) delete m_screensaverWidget;
+            if (m_screensaverWidget) {
+                delete m_screensaverWidget;
+                m_screensaverWidget = NULL;
+            }
             // Instantiate screensaver widget
             m_screensaverWidget = new ScreensaverWidget(m_config->ac_screensaver, m_config->slideshow_image_dir, m_config->slideshow_random_order, m_config->slideshow_zoom_effect);
             connect(m_screensaverWidget, TQT_SIGNAL(destroyed()), this, TQT_SLOT(onScreensaverDestroyed()));
-            connect(m_screensaverWidget, TQT_SIGNAL(userActivityDetected()), m_screensaverWidget, TQT_SLOT(close()));
+            connect(m_screensaverWidget, TQT_SIGNAL(userActivityDetected()), this, TQT_SLOT(dismissScreensaver()));
             connect(m_screensaverWidget, TQT_SIGNAL(userActivityDetected()), m_inactivity, TQT_SLOT(onResume()));
             m_screensaverWidget->showFullScreen();
         }
@@ -183,11 +194,7 @@ private slots:
             delete m_transitionOverlay;
             m_transitionOverlay = NULL;
         }
-        if (m_screensaverWidget) {
-            m_screensaverWidget->hide();
-            delete m_screensaverWidget;
-            m_screensaverWidget = NULL;
-        }
+        dismissScreensaver();
     }
 
     void handleBlackoutScreensaver(bool enable) {

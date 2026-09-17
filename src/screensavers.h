@@ -7,6 +7,7 @@
 #include <tqimage.h>
 #include <tqstringlist.h>
 #include <tqvaluelist.h>
+#include <tqevent.h>
 
 class ScreensaverWidget : public TQWidget {
     TQ_OBJECT
@@ -21,6 +22,8 @@ signals:
 protected:
     virtual void paintEvent(TQPaintEvent *e);
     virtual void showEvent(TQShowEvent *e);
+    virtual void hideEvent(TQHideEvent *e);
+    virtual void closeEvent(TQCloseEvent *e);
     virtual void keyPressEvent(TQKeyEvent *e);
     virtual void mousePressEvent(TQMouseEvent *e);
     virtual void mouseMoveEvent(TQMouseEvent *e);

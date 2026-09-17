@@ -291,16 +291,16 @@ Yabatman uses highly aggressive compilation flags (LTO, GC sections, `-Os` for U
 
 You can build `.deb` packages for both modes:
 
-#### Dynamic TDE Package (`yabatman_1.2-5_amd64.deb`)
+#### Dynamic TDE Package (`yabatman_1.2-6_amd64.deb`)
 ```bash
 ./build_deb.sh
-sudo dpkg -i yabatman_1.2-5_amd64.deb
+sudo dpkg -i yabatman_1.2-6_amd64.deb
 ```
 
-#### Standalone Static Package (`yabatman_1.2-5_amd64_static.deb`)
+#### Standalone Static Package (`yabatman_1.2-6_amd64_static.deb`)
 ```bash
 ./build_deb.sh static
-sudo dpkg -i yabatman_1.2-5_amd64_static.deb
+sudo dpkg -i yabatman_1.2-6_amd64_static.deb
 ```
 
 The `.deb` package includes:
@@ -322,7 +322,7 @@ For users running the **Q4OS Linux** distribution, you can generate a one-click 
 ./build_qsi.sh
 ```
 
-This script embeds the Debian package and custom graphical setup templates into `yabatman_1.2-5_amd64.qsi`. On Q4OS, users can simply double-click the `.qsi` file to launch the native installation wizard.
+This script embeds the Debian package and custom graphical setup templates into `yabatman_1.2-6_amd64.qsi`. On Q4OS, users can simply double-click the `.qsi` file to launch the native installation wizard.
 
 ---
 
