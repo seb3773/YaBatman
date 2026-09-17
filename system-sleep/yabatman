@@ -4,10 +4,11 @@
 
 case "$1" in
     pre)
-        if [ "$2" = "suspend-then-hibernate" ] && [ "$SYSTEMD_SLEEP_ACTION" = "hibernate" ]; then
-            # Transition from suspend to hibernate:
+        if [ "$2" = "hibernate" ] || [ "$2" = "hybrid-sleep" ] || \
+           { [ "$2" = "suspend-then-hibernate" ] && [ "$SYSTEMD_SLEEP_ACTION" = "hibernate" ]; }; then
+            # Transition to hibernate or hybrid-sleep:
             # Re-enable all secondary CPU cores and boost performance profile so that
-            # memory snapshotting and swap write operations execute with full hardware bandwidth.
+            # memory snapshotting, compression and swap write operations execute with full hardware bandwidth.
             if [ -x /usr/sbin/yabatmand ]; then
                 /usr/sbin/yabatmand reenable_cpu_cores 2>/dev/null || true
                 /usr/sbin/yabatmand set_perf_profile 2>/dev/null || true
@@ -17,6 +18,25 @@ case "$1" in
             for cpu in /sys/devices/system/cpu/cpu[1-9]*/online; do
                 [ -w "$cpu" ] && echo 1 > "$cpu" 2>/dev/null || true
             done
+
+            # Direct sysfs fallback: restore maximum frequency and set governor/EPP to performance
+            for cpu in /sys/devices/system/cpu/cpu*/cpufreq; do
+                if [ -r "$cpu/cpuinfo_max_freq" ] && [ -w "$cpu/scaling_max_freq" ]; then
+                    cat "$cpu/cpuinfo_max_freq" > "$cpu/scaling_max_freq" 2>/dev/null || true
+                fi
+                if [ -w "$cpu/scaling_governor" ]; then
+                    echo "performance" > "$cpu/scaling_governor" 2>/dev/null || true
+                fi
+                if [ -w "$cpu/energy_performance_preference" ]; then
+                    echo "performance" > "$cpu/energy_performance_preference" 2>/dev/null || true
+                fi
+            done
+            if [ -w /sys/devices/system/cpu/intel_pstate/no_turbo ]; then
+                echo 0 > /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || true
+            fi
+            if [ -w /sys/devices/system/cpu/cpufreq/boost ]; then
+                echo 1 > /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || true
+            fi
         fi
         ;;
     post)
@@ -25,6 +45,14 @@ case "$1" in
             # Re-apply low power state to prevent battery depletion during remaining sleep.
             if [ -x /usr/sbin/yabatmand ]; then
                 /usr/sbin/yabatmand disable_cpu_cores 2>/dev/null || true
+            fi
+        else
+            # Ensure all CPU cores are online after waking up
+            for cpu in /sys/devices/system/cpu/cpu[1-9]*/online; do
+                [ -w "$cpu" ] && echo 1 > "$cpu" 2>/dev/null || true
+            done
+            if [ -x /usr/sbin/yabatmand ]; then
+                /usr/sbin/yabatmand reenable_cpu_cores 2>/dev/null || true
             fi
         fi
         ;;

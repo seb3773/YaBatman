@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PKG_NAME="yabatman"
-PKG_VERSION="1.2-2"
+PKG_VERSION="1.2-5"
 PKG_MAINTAINER="seb3773"
 PKG_SECTION="admin"
 PKG_PRIORITY="optional"

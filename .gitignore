@@ -19,6 +19,7 @@
 *.tmp
 .DS_Store
 .vscode/
+*.code-workspace
 # Large uncompressed libraries (tracked via .xz)
 libs/libtqt-mt.a
 

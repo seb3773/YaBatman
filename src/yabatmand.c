@@ -2231,6 +2231,8 @@ static int set_charge_limit(int value) {
 
 
 
+void reenable_cpu_cores(void);
+
 static inline int set_low_profile(int ultra) {
     return set_energy_profile(ultra ? PROFILE_ULTRA_LOW_POWER : PROFILE_LOW_POWER, ultra);
 }
@@ -2238,6 +2240,7 @@ static inline int set_normal_profile() {
     return set_energy_profile(PROFILE_BALANCED, 0);
 }
 static inline int set_perf_profile() {
+    reenable_cpu_cores();
     return set_energy_profile(PROFILE_PERFORMANCE, ultra_perf_mode_flag);
 }
 
@@ -2313,12 +2316,31 @@ void reenable_cpu_cores(void) {
 printf("\033[37m%s\033[38;2;220;180;240m                      !---  reactivating cpu cores\033[39m\n",debugtag());
 #endif
     int cpu;
-    for (cpu = 1; cpu < cpu_count; ++cpu) {
-        if (cpu_online_initial[cpu]) {
-            #ifdef CONSOLE_DEBUG
-            printf("\033[37m%s\033[38;2;220;180;240m                                 !---  activating core %d\033[39m\n",debugtag(),cpu);
-            #endif
-            set_cpu_core_online(cpu, 1);
+    if (cpu_count > 1) {
+        for (cpu = 1; cpu < cpu_count; ++cpu) {
+            if (cpu_online_initial[cpu]) {
+                #ifdef CONSOLE_DEBUG
+                printf("\033[37m%s\033[38;2;220;180;240m                                 !---  activating core %d\033[39m\n",debugtag(),cpu);
+                #endif
+                set_cpu_core_online(cpu, 1);
+            }
+        }
+    } else {
+        DIR *cpudir = opendir(CPU_SYSFS_PATH);
+        struct dirent *entry;
+        if (cpudir) {
+            while ((entry = readdir(cpudir)) != NULL) {
+                if (strncmp(entry->d_name, "cpu", 3) == 0 && my_isdigit(entry->d_name[3])) {
+                    cpu = atoi(entry->d_name + 3);
+                    if (cpu > 0 && cpu < MAX_CPUS) {
+                        #ifdef CONSOLE_DEBUG
+                        printf("\033[37m%s\033[38;2;220;180;240m                                 !---  activating core %d (fallback)\033[39m\n",debugtag(),cpu);
+                        #endif
+                        set_cpu_core_online(cpu, 1);
+                    }
+                }
+            }
+            closedir(cpudir);
         }
     }
 #ifdef CONSOLE_DEBUG

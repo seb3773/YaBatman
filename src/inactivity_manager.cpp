@@ -2137,6 +2137,7 @@ void InactivityManager::prepareSuspendGeneral(bool isHibernateOrPoweroff) {
     if (m_bluetoothInitialState == -1) m_bluetoothInitialState = getRfkillState("bluetooth");
 
     if (isHibernateOrPoweroff) {
+        callDaemon("reenable_cpu_cores");
         setProfile(2); // Performance for fast hibernation/shutdown
     } else {
         if (m_config->minimal_state_before_suspend) {
